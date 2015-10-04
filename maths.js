@@ -1,3 +1,4 @@
+/* eslint-disable */
 function distance(x1, y1, x2, y2) {
 	return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
 }
@@ -24,11 +25,11 @@ Originally coded in Java by Ryan Alexander
 */
 // Line Segment Intersection
 
-function segIntersection(x1, y1, x2, y2, x3, y3, x4, y4) 
-{ 
-  var bx = x2 - x1; 
-  var by = y2 - y1; 
-  var dx = x4 - x3; 
+function segIntersection(x1, y1, x2, y2, x3, y3, x4, y4)
+{
+  var bx = x2 - x1;
+  var by = y2 - y1;
+  var dx = x4 - x3;
   var dy = y4 - y3;
   var b_dot_d_perp = bx * dy - by * dx;
   if(b_dot_d_perp == 0) {
@@ -41,7 +42,7 @@ function segIntersection(x1, y1, x2, y2, x3, y3, x4, y4)
     return null;
   }
   var u = (cx * by - cy * bx) / b_dot_d_perp;
-  if(u < 0 || u > 1) { 
+  if(u < 0 || u > 1) {
     return null;
   }
   return [x1+t*bx, y1+t*by];
@@ -81,14 +82,14 @@ function lineIntersection(x1, y1, x2, y2, x3, y3, x4, y4)
   var bx = x2 - x1;
   var by = y2 - y1;
   var dx = x4 - x3;
-  var dy = y4 - y3; 
+  var dy = y4 - y3;
   var b_dot_d_perp = bx*dy - by*dx;
   if(b_dot_d_perp == 0) {
     return null;
   }
-  var cx = x3-x1; 
+  var cx = x3-x1;
   var cy = y3-y1;
-  var t = (cx*dy - cy*dx) / b_dot_d_perp; 
- 
-  return [x1+t*bx, y1+t*by]; 
+  var t = (cx*dy - cy*dx) / b_dot_d_perp;
+
+  return [x1+t*bx, y1+t*by];
 }

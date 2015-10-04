@@ -1,3 +1,4 @@
+/* eslint-disable */
 var ctx;
 var canvas;
 var timer;
@@ -108,7 +109,7 @@ function boot() {
 	styleelement["type"]="text/css";
 	styleelement.innerHTML=csslolcode;
 	document.getElementsByTagName("head")[0].appendChild(styleelement);
-	
+
 	var mouseevents="onmousemove='movedmouse(event)' onmousedown='mdown(event)' onmouseup='mup(event)'";
 	var shopHeight=200;
 	$("shooterdiv").innerHTML="<canvas id=\"shootercanvas\" width=\""+width+"\" height=\""+height+"\" style=\"cursor:crosshair;width:"+width+"px;height:"+height+"px\" onmousemove='movedmouse(event)' onmousedown='mdown(event)' onmouseup='mup(event)' onmouseover='mover(event)' onmouseout='mout(event)' style='display:'>Your browser doesn't support HTML5. Please use Google Chrome, Opera, Safari, Firefox, etc; IE won't work</canvas><div id='shopdiv' width=\""+width+"\" height=\""+shopHeight+"\" style=\"width:"+width+"px;height:"+shopHeight+"px;border-top:1px solid #fff;color:#fff\"></div><audio id='audio'></audio>";
@@ -120,15 +121,15 @@ function boot() {
 	paused=true;
 	clearInterval(timer);
 	runUI();
-	
+
 	cutouts=[];
 	for (var i = 0, l = cutouts.length;i < l;i++)
 		cutouts[i].mesh.scale(enemyscale);
-	
+
 	//default speed:3  value:5  health:5  resistance:2
-	
+
 	cutouts[0]=new Enemy(0,meshes[0]); //triangle
-	
+
 	cutouts[1]=new Enemy(0,meshes[1]); //wall sentient
 	cutouts[1].health=50;
 	cutouts[1].behavior=wallBehavior;
@@ -137,42 +138,42 @@ function boot() {
 	cutouts[1].value=30;
 	cutouts[1].resistance=50;
 	cutouts[1].motion=newVectorDL(180,1);
-	
+
 	cutouts[2]=new Enemy(0,meshes[2]); //eagle
 	cutouts[2].value=10;
 	cutouts[2].resistance=10;
 	cutouts[2].motion=newVectorDL(180,5);
 	cutouts[2].health=25;
 	cutouts[2].behavior=eagleBehavior;
-	
+
 	cutouts[3]=new Enemy(0,meshes[3]); //zipper
 	cutouts[3].resistance=15;
 	cutouts[3].behavior=zipperBehavior;
-	
+
 	cutouts[4]=new Enemy(0,meshes[4]); //curve
 	cutouts[4].behavior=curveBehavior;
 	cutouts[4].spawn=curveSpawn;
 	cutouts[4].motion=newVectorDL(180,2);
 	cutouts[4].value=2;
 	cutouts[4].health=4;
-	
+
 	cutouts[5]=new Enemy(0,meshes[1]); //wall swarm
 	cutouts[5].health=50;
 	cutouts[5].color=["blue",""];
 	cutouts[5].props=new Array("#d00","#f77",true);
 	cutouts[5].value=30;
 	cutouts[5].resistance=50;
-	
+
 	cutouts[6]=new Enemy(height/2,[[-50,-300],[-50,-50],[0,0],[50,-50],[50,-300],[-50,-300]]);
 	cutouts[6].resistance=15;
 	cutouts[6].health=1000;
 	cutouts[6].value=1000;
 	cutouts[6].motion=newVectorDL(180,0);
 	cutouts[6].behavior=rockbossterBehavior;
-	
+
 	formations[0]=new Formation("90,3;0 0 45;0 40 25;0 40 65;0 80 5;0 80 85");
 	formations[1]=new Formation("120,2;5 0 60;0 12 5;0 12 25;0 12 45;0 24 25;0 12 75;0 12 95;0 12 115;0 24 95");
-	
+
 	incomingEnemies=parseLevel("end=10000;0 m 0;0 f 0 150 2;25 f 0 150 2;50 f 0 150 2;150 m 0.2;750 m 0.5;2000 m 0;2250 e 6 200;2500 m 0.5;3000 m 1;5000 m 2;6000 m 3;7000 m 4;7000 e 6 200");
 	/*incomingEnemies=new Array(
 		0,new changeMod(0.2),
@@ -334,7 +335,7 @@ function shipSelect() {
 		shipSelectStuff.displayHeight=0;
 		shipSelectStuff.turned=270;
 	}
-	
+
 	for (var i = 0, l = shipSelectStuff.mesh.length;i < l;i++) {
 		if (Math.random() < 0.01) shipSelectStuff.vectors[i]=newVectorDL(Math.random()*360,Math.random());
 		shipSelectStuff.mesh[i][0]+=shipSelectStuff.vectors[i].dx;
@@ -399,7 +400,7 @@ function liveMesh(clicked) {
 			console.log(sarray);
 			$('shopinput').value = '[' + sarray.join(',') + ']';
 		}
-		
+
 		tmesh=new Mesh(tarray,newVectorDL(angle,1),150,150);
 		for (var i = 0, l = undraws.length;i < l;i++) {
 			undraws[i].undraw();
@@ -443,7 +444,7 @@ function beginGame() {
 	currentUI=frame;
 	runUI();
 	updateShop();
-	
+
 	for (var i = 0;i < histMax;i++) {
 		histogram[i] = 0;
 	}
@@ -509,7 +510,7 @@ function calcY() {
 function frame() {
 	//var time=(new Date()).getTime();
 	var time = Date.now();
-	
+
 	var cur = time - last;
 	last = time;
 	fps=1000/cur;
@@ -520,7 +521,7 @@ function frame() {
 	for (var i = 0, l = fraps.length;i < l;i++) afps+=fraps[i];
 	afps/=fraps.length;
 	afps=Math.ceil(afps);
-	
+
 	var progressTime = Math.floor((time - beginLevel + timeSpent) / 1000);
 	shoptimer++;
 	var shoptimed=50;
@@ -533,8 +534,8 @@ function frame() {
 	}
 	//var cur=(time.getMilliseconds()+time.getSeconds()*1000+time.getMinutes()*60000)-last;
 	//last=time.getMilliseconds()+time.getSeconds()*1000+time.getMinutes()*60000;
-	
-	
+
+
 	var killEvents=[];
 	//if event's wait is -1, kill it (on event run, set to 0 if done); if it's 0, run it (anything else is skipped over)
 	for (var i = 0, l = events.length;i < l;i++) {
@@ -545,8 +546,8 @@ function frame() {
 	for (var i = 0, l = killEvents.length;i < l;i++) {
 		Array.removeItem(events,killEvents[i]);
 	}
-	
-	
+
+
 	player.mesh.undraw();
 	for (var i = 0, l = player.weapons.length;i < l;i++) if (player.weapons[i] != null) player.weapons[i].mesh.undraw();
 	for (var i = 0, l = friendBullets.length;i < l;i++) {
@@ -628,24 +629,24 @@ function frame() {
 	drawText("Score: "+kills,width-20,30);
 	drawText("$ "+money,width-20,40);
 	drawText("e"+enemies.length+" b"+friendBullets.length+" p"+miscJunk.length+" v"+events.length+" "+afps+"fps",width-20,50);
-	
+
 	var linetoside = newVectorCoords(player.xc, player.yc, mouse[0], mouse[1]);
 	var scale = (width - player.xc) / (mouse[0] - player.xc);
 	linetoside.scale(scale);
 	var hitat = [player.xc + linetoside.dx, player.yc + linetoside.dy];
-	
+
 	var histGrid = Math.floor(hitat[1] / histGridSize);
-	
+
 	for (var i = 0;i < histMax;i++) {
 		if (histogram[i] > 0) histogram[i] *= histDecay;
 	}
 	if (histGrid >= 0 && histGrid < histMax) {
 		histogram[histGrid] += histHit;
-		
+
 	}
 	cfps = Date.now() - time;
 	drawText((1000 / cfps).toFixed(2) +"fps",width-20,60);
-	
+
 	//visual histogram testing
 	/*for (var i = 0;i < histMax;i++) {
 		if (histogram[i] > 0) {
@@ -655,12 +656,12 @@ function frame() {
 			ctx.lineTo(hitat[0], y);
 			ctx.strokeStyle="rgb(0,128,128)";
 			ctx.stroke();
-			
+
 			undraws.push(new Rectangle(hitat[0]-histogram[i], y - 1, histogram[i], 3));
 		}
 	}*/
-	
-	
+
+
 }
 function updateShop() {
 	var shop=$("shopdiv");
@@ -681,7 +682,7 @@ function updateShop() {
 			if (money < weaponcosts[player.weapons[i].name][player.weapons[i].level+1]) upgrade+='red';
 			var reload='repairbutton';
 			if (money < reloadWeaponCost(player.weapons[i].name)) reload+='red';
-			
+
 			shop.innerHTML+="<div class='shopweapon'>"+player.weapons[i].name+" (lvl "+(player.weapons[i].level+1)+") ["+(i+1)+"]<br />"+
 			"<div class='"+repair+"' onclick=\"repairWeapon('"+player.weapons[i].name+"')\">health: "+(parseInt((player.weapons[i].health/weaponhealth[player.weapons[i].name][player.weapons[i].level])*10000)/100)+"%</div>"+
 			"<div class='"+upgrade+"' onclick=\"upgradeWeapon('"+player.weapons[i].name+"')\">upgrade: "+weaponcosts[player.weapons[i].name][player.weapons[i].level+1]+"</div>"+
@@ -995,7 +996,7 @@ function upgradeWeapon(name) {
 			//player.weapons[select].armor-=0.09;
 			nmesh=true;
 		}
-		
+
 		if (nmesh) if (meshes[lvl] != null) player.weapons[select].swapMesh(meshes[lvl]);
 	}
 	runUI();
@@ -1005,7 +1006,7 @@ function movedmouse(e) {
 	mouse=[e.clientX-offset[0]+window.pageXOffset,e.clientY-offset[1]+window.pageYOffset];
 }
 function clicked(e) {
-	
+
 }
 function mdown(e) {
 	shooting=true;
@@ -1341,7 +1342,7 @@ function playerAct() {
 		//speed=Math.max(0.5+(this.xc-40)/(width-40)*10,1.5);
 		this.mesh.move(this.xc,this.yc);
 	}
-	
+
 	this.mesh.rotate(this.facing);
 	var weaponNum=0;
 	for (var i = 0,l = this.weapons.length;i < l;i++) if (this.weapons[i] != null) {
@@ -1762,7 +1763,7 @@ function weaponHit(damage,enemy) {
 function shellHit(damage,enemy) {
 	console.log(this);
 	console.log(enemy);
-	
+
 	if (enemy) var dmg = Math.min(enemy.health,this.health / this.armor);
 	else var dmg = 1;
 	this.health-=dmg*damage*this.armor;
@@ -2181,7 +2182,7 @@ function enemyAct() {
 	}
 	//for (var i = xmin;i<=xmax;i++) collisionMapX[i]=true;
 	//for (var i = ymin;i<=ymax;i++) collisionMapY[i]=true;
-	
+
 	//collisionMapX[parseInt(this.xc/colXRes)]=true;
 	//collisionMapY[parseInt(this.yc/colYRes)]=true;
 	this.props=new Array("#d00","#f77");
@@ -2246,7 +2247,7 @@ function wallBehavior() {
 	var len=this.motion.length;
 	this.motion.add(influence);
 	this.motion.setLength(len);
-	
+
 	influence=newVectorDL(180,0.1);
 	var len=this.motion.length;
 	this.motion.add(influence);
@@ -2296,7 +2297,7 @@ function rockbossterBehavior() {
 	if (this.xc < width/2) this.motion=newVectorDL(0,3);
 	if (this.xc > width*0.75) this.motion=newVectorDL(180,3);
 	if (this.delay==null) this.delay=0;
-	
+
 	if (Math.random() < 0.2) {
 		var x=this.mesh.mesh[2][0]+this.xc-10;
 		var y=this.mesh.mesh[2][1]+this.yc;
