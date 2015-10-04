@@ -1,0 +1,8 @@
+<levels>
+	<level>
+	<stage>1</stage>
+	<enemies>
+		<e t="0" y="40" />
+	</enemies>
+	</level>
+</levels>
