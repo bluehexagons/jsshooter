@@ -118,7 +118,7 @@ function boot() {
 	offset=findPos($("shootercanvas"));
 	ctx=canvas.getContext("2d");
 	ctx.fillStyle="black";
-	paused=true;
+	setPaused(true);
 	clearInterval(timer);
 	runUI();
 
@@ -249,10 +249,10 @@ var fps=0;
 var cfps = 0;
 var fraps=[];
 var popfrap=false;
-var _paused;
-__defineSetter__("paused", function (val) {
-	if (_paused != val) {
-		_paused = val;
+var paused = false;
+var setPaused = function (val) {
+	if (paused != val) {
+		paused = val;
 		if (paused) {
 			if (beginLevel) {
 				timeSpent += (new Date()).getTime() - beginLevel;
@@ -266,11 +266,8 @@ __defineSetter__("paused", function (val) {
 			}
 		}
 	}
-});
-__defineGetter__("paused", function () {
-	return _paused;
-});
-paused = true;
+}
+setPaused(true);
 var shipSelectStuff=false;
 var shipMeshes=new Object();
 var shipGuns=new Object();
@@ -298,7 +295,7 @@ function shipSelect() {
 		shipMeshes["knight"]=[[-20,20],[20,20],[20,-20],[-20,-20],[-20,20]];
 		//@gundat
 		shipGuns["rounded"]=["rapid","rapid2","fan","laser","pulse"];
-		shipGuns["sprayer"]=["shell","shell2","spray"];
+		shipGuns["sprayer"]=["shell","shell2","spray","orbit"];
 		shipGuns["tank"]=["laser","shell"];
 		shipGuns["focus"]=["laser","rapid"];
 		shipGuns["ghost"]=["shell","rapid"];
@@ -379,9 +376,9 @@ var liveMeshStuff=false;
 function liveMesh(clicked) {
 	if (liveMeshStuff == false) {
 		liveMeshStuff = {};
-		$("shopdiv").innerHTML="<input type='text' id='shopinput' onkeyup='liveMesh()' style='width:600px' value='[[0,0],[0,10]]' \>"+
-		"<input type='text' id='angleinput' onkeyup='liveMesh()' value='0' \>"+
-		"<input type='text' id='shipmesh' onkeyup='liveMesh()' value='' \>"
+		$("shopdiv").innerHTML="<input type='text' id='shopinput' onkeyup='liveMesh()' style='width:600px' value='[[0,0],[0,10]]' \> mesh<br />"+
+		"<input type='text' id='angleinput' onkeyup='liveMesh()' value='0' \> angle<br />"+
+		"<input type='text' id='shipmesh' onkeyup='liveMesh()' value='' \> ship"
 	}
 	try {
 		var angle = parseInt($("angleinput").value) | 0;
@@ -574,7 +571,7 @@ function frame() {
 	}killMisc=[];
 	ctx.fillStyle="white";
 	fmouse=mouse;
-	if (!_paused) {
+	if (!paused) {
 		player.act();
 		for (var i = 0, l = friendBullets.length;i < l;i++) {
 			friendBullets[i].act();
@@ -711,12 +708,12 @@ function drawText(text,x,y,color) {
 	undraws.push(new Rectangle(x-wid,y-8,wid,12));
 }
 function mover(e) {
-	paused=false;
+	setPaused(false);
 	clearInterval(timer);
 	timer=setInterval(runUI,lockFPS);
 }
 function mout(e) {
-	paused=true;
+	setPaused(true);
 	clearInterval(timer);
 	runUI();
 }
@@ -809,6 +806,7 @@ weaponcosts["fan"]=[25,50,100,500,500,500,500,500,500,500,null];
 weaponcosts["pulse"]=[25,50,100,500,500,500,500,500,500,500,null];
 weaponcosts["spray"]=[25,50,100,500,500,500,500,500,500,500,null];
 weaponcosts["laser"]=[25,50,100,500,500,500,500,500,500,500,null];
+weaponcosts["orbit"]=[25,50,100,500,500,500,500,500,500,500,null];
 weaponcosts["shell"]=[25,50,100,500,500,500,500,500,500,500,null];
 weaponcosts["shell2"]=[25,50,100,500,500,500,500,500,500,500,null];
 var weaponhealth=new Object();
@@ -818,6 +816,7 @@ weaponhealth["fan"]=[5,10,20,25,35,50,75,100,120,150];
 weaponhealth["pulse"]=[5,10,20,25,35,50,75,100,120,150];
 weaponhealth["spray"]=[5,10,20,25,35,50,75,100,120,150];
 weaponhealth["laser"]=[3,5,7,10,15,20,30,40,50,75];
+weaponhealth["orbit"]=[3,5,7,10,15,20,30,40,50,75];
 weaponhealth["shell"]=[25,25,50,50,100,100,150,150,200,250];
 weaponhealth["shell2"]=[25,25,50,50,100,100,150,150,200,250];
 var weaponreload=new Object();
@@ -827,6 +826,7 @@ weaponreload["fan"]=0;
 weaponreload["pulse"]=10;
 weaponreload["spray"]=0;
 weaponreload["laser"]=10;
+weaponreload["orbit"]=0;
 weaponreload["shell"]=5;
 weaponreload["shell2"]=5;
 
@@ -901,6 +901,7 @@ weaponMeshes["rapid2"]=[[[9,15],[3,30],[3,25],[9,15]],
 	[[18,0],[3,30],[3,25],[13,0],[6,0],[6,-8],[18,0]]];
 weaponMeshes["fan"]=[[[0,0],[5,-10],[-5,-10],[0,0],[0,-10]]];
 weaponMeshes["pulse"]=[[[-5,5],[0,30],[5,5],[0,1],[-5,5]]];
+weaponMeshes["orbit"]=[[[0,-2.5 + 50],[5,2.5 + 50],[0,7.5 + 50],[-5,2.5 + 50],[0,-2.5 + 50]]];
 function upgradeWeapon(name) {
 	var select=Array.findByName(player.weapons,name);
 	var lvl=player.weapons[select].level;
@@ -942,6 +943,9 @@ function upgradeWeapon(name) {
 			for (var i=0,l = player.weapons[select].level*2+7;i<l;i++) player.weapons[select].guns.push(0);
 		}
 		if (name=="laser") {
+			player.weapons[select].penetration+=22;
+		}
+		if (name=="orbit") {
 			player.weapons[select].penetration+=22;
 		}
 		if (name=="shell") {
@@ -1077,7 +1081,7 @@ function Line(x1,y1,x2,y2) {
 //Mesh object
 function Mesh(distarray,vectFacing,x,y) {
 	this.points=distarray;
-	this.mesh=new Array(distarray);
+	this.mesh=new Array();
 	this.pos=[x,y];
 	this.facingy=vectFacing;
 	this.facingx=newVectorDL((vectFacing.direction+90)%360,1);
@@ -1698,6 +1702,7 @@ function fanFire() {
 		//dbg(this.rate+" "+this.damage+" "+this.damage/this.rate); //dpf data
 	}
 }
+
 function pulseBlaster() {
 	this.name="pulse";
 	this.ammo=25;
@@ -1751,6 +1756,46 @@ function pulseFire() {
 	this.mesh.update();
 }
 
+function orbitBlaster() {
+	this.name="orbit";
+	this.ammo=1;
+	this.maxAmmo=1;
+	this.cooldown=0;
+	this.speed=15;
+	this.rate=6;
+	this.fire=orbitFire;
+	this.color=["#55f",""];
+	this.damage=1;
+	this.draw=drawIt;
+	this.health=weaponhealth[this.name][0];
+	this.level=0;
+	this.hit=weaponHit;
+	this.blink=0;
+	this.armor=1;
+	this.mesh=new Mesh(weaponMeshes[this.name][0],player.facing,player.xc,player.yc);
+	this.swapMesh=swapMesh;
+	this.rotated = 0;
+	this.rotateSpeed = 6;
+}
+function orbitFire() {
+	if (this.blink-- > 0) {
+		this.color=["#aaf",""];
+		if (this.health>0) drawText(Math.ceil(this.health),this.mesh.rectangle.x+this.mesh.rectangle.w,this.mesh.rectangle.y-5,"white");
+	}else this.color=["#55f",""];
+	rotateMesh(this.mesh, this.rotated += this.rotateSpeed);
+	if (shooting) {
+		while (this.cooldown < 1) {
+			var mot=player.facing.copy();
+			var spray=1/this.rate*this.damage;
+			mot.direction+=Math.random()*spray-spray/2;
+			mot.setLength(this.speed*4/5+this.speed/5*Math.random());
+			var bullet=fireFrom(this.mesh.mesh[2][0]+player.xc,this.mesh.mesh[2][1]+player.yc,mot);
+			if (this.damage > 1) bullet.damage=this.damage;
+			this.cooldown+=this.rate;
+		}
+	}
+	//this.mesh.rotate(1);
+}
 
 function weaponHit(damage,enemy) {
 	this.health-=damage*this.armor;
