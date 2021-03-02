@@ -118,7 +118,7 @@ function boot() {
 	offset=findPos($("shootercanvas"));
 	ctx=canvas.getContext("2d");
 	ctx.fillStyle="black";
-	paused=true;
+	setPaused(true);
 	clearInterval(timer);
 	runUI();
 
@@ -249,10 +249,10 @@ var fps=0;
 var cfps = 0;
 var fraps=[];
 var popfrap=false;
-var _paused;
-__defineSetter__("paused", function (val) {
-	if (_paused != val) {
-		_paused = val;
+var paused = false;
+var setPaused = function (val) {
+	if (paused != val) {
+		paused = val;
 		if (paused) {
 			if (beginLevel) {
 				timeSpent += (new Date()).getTime() - beginLevel;
@@ -266,11 +266,8 @@ __defineSetter__("paused", function (val) {
 			}
 		}
 	}
-});
-__defineGetter__("paused", function () {
-	return _paused;
-});
-paused = true;
+}
+setPaused(true);
 var shipSelectStuff=false;
 var shipMeshes=new Object();
 var shipGuns=new Object();
@@ -574,7 +571,7 @@ function frame() {
 	}killMisc=[];
 	ctx.fillStyle="white";
 	fmouse=mouse;
-	if (!_paused) {
+	if (!paused) {
 		player.act();
 		for (var i = 0, l = friendBullets.length;i < l;i++) {
 			friendBullets[i].act();
@@ -711,12 +708,12 @@ function drawText(text,x,y,color) {
 	undraws.push(new Rectangle(x-wid,y-8,wid,12));
 }
 function mover(e) {
-	paused=false;
+	setPaused(false);
 	clearInterval(timer);
 	timer=setInterval(runUI,lockFPS);
 }
 function mout(e) {
-	paused=true;
+	setPaused(true);
 	clearInterval(timer);
 	runUI();
 }
