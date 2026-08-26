@@ -26,6 +26,7 @@ export class InputController {
   private mouseFiring = false;
   private keyboardFiring = false;
   private enabled = false;
+  private worldHeight = WORLD_HEIGHT;
 
   public readonly aim = new Vector(WORLD_WIDTH * 0.75, WORLD_HEIGHT / 2);
 
@@ -48,6 +49,11 @@ export class InputController {
     if (!enabled) {
       this.reset();
     }
+  }
+
+  public setWorldHeight(height: number): void {
+    this.aim.y *= height / this.worldHeight;
+    this.worldHeight = height;
   }
 
   public get movement(): Vector {
@@ -166,7 +172,7 @@ export class InputController {
     const bounds = this.canvas.getBoundingClientRect();
     return new Vector(
       ((event.clientX - bounds.left) / bounds.width) * WORLD_WIDTH,
-      ((event.clientY - bounds.top) / bounds.height) * WORLD_HEIGHT,
+      ((event.clientY - bounds.top) / bounds.height) * this.worldHeight,
     );
   }
 }

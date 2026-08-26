@@ -127,6 +127,7 @@ export class Game {
   private lastFrameTime = performance.now();
   private uiCooldown = 0;
   private screenFlash = 0;
+  private worldHeight = WORLD_HEIGHT;
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -140,7 +141,7 @@ export class Game {
     this.input = new InputController(canvas, () => this.togglePause());
     this.stars = Array.from({ length: 150 }, () => ({
       x: Math.random() * WORLD_WIDTH,
-      y: Math.random() * WORLD_HEIGHT,
+      y: Math.random() * this.worldHeight,
       depth: Math.random() * 0.8 + 0.2,
       size: Math.random() * 1.4 + 0.4,
     }));
@@ -160,7 +161,7 @@ export class Game {
   public start(shipId: ShipId): void {
     const ship = getShip(shipId);
     this.player = {
-      position: new Vector(115, WORLD_HEIGHT / 2),
+      position: new Vector(115, this.worldHeight / 2),
       velocity: new Vector(),
       angle: 0,
       health: ship.hull,
@@ -180,7 +181,7 @@ export class Game {
     this.lastBossWave = 0;
     this.screenFlash = 0;
     this.input.aim.x = 600;
-    this.input.aim.y = WORLD_HEIGHT / 2;
+    this.input.aim.y = this.worldHeight / 2;
     this.setState("playing");
     this.canvas.focus({ preventScroll: true });
   }
@@ -312,7 +313,7 @@ export class Game {
       star.x -= (24 + star.depth * 76) * delta;
       if (star.x < -4) {
         star.x = WORLD_WIDTH + 4;
-        star.y = Math.random() * WORLD_HEIGHT;
+        star.y = Math.random() * this.worldHeight;
       }
     }
   }
@@ -325,7 +326,7 @@ export class Game {
     player.velocity.y += (desiredVelocity.y - player.velocity.y) * responsiveness;
     player.position.add(player.velocity.clone().scale(delta));
     player.position.x = clamp(player.position.x, 35, WORLD_WIDTH - 35);
-    player.position.y = clamp(player.position.y, 35, WORLD_HEIGHT - 35);
+    player.position.y = clamp(player.position.y, 35, this.worldHeight - 35);
     player.angle = Vector.between(player.position, this.input.aim).angle;
     player.invulnerable = Math.max(0, player.invulnerable - delta);
     player.baseCooldown -= delta;
@@ -381,7 +382,7 @@ export class Game {
   }
 
   private spawnEnemy(kind: EnemyKind): void {
-    const y = 55 + Math.random() * (WORLD_HEIGHT - 110);
+    const y = 55 + Math.random() * (this.worldHeight - 110);
     const healthScale = 1 + (this.wave - 1) * 0.12;
     const defaults = {
       scout: { radius: 14, health: 22, reward: 12, speed: 175, damage: 14, cooldown: 99 },
@@ -401,7 +402,7 @@ export class Game {
     this.enemies.push({
       id: this.nextEnemyId++,
       kind,
-      position: new Vector(WORLD_WIDTH + defaults.radius + 10, kind === "boss" ? WORLD_HEIGHT / 2 : y),
+      position: new Vector(WORLD_WIDTH + defaults.radius + 10, kind === "boss" ? this.worldHeight / 2 : y),
       velocity: new Vector(-defaults.speed, 0),
       radius: defaults.radius,
       health,
@@ -438,11 +439,11 @@ export class Game {
         if (enemy.position.x < WORLD_WIDTH * 0.8) {
           enemy.velocity.x = 0;
         }
-        enemy.position.y = WORLD_HEIGHT / 2 + Math.sin(enemy.age * 0.85) * WORLD_HEIGHT * 0.29;
+        enemy.position.y = this.worldHeight / 2 + Math.sin(enemy.age * 0.85) * this.worldHeight * 0.29;
       }
 
       enemy.position.add(enemy.velocity.clone().scale(delta));
-      enemy.position.y = clamp(enemy.position.y, enemy.radius, WORLD_HEIGHT - enemy.radius);
+      enemy.position.y = clamp(enemy.position.y, enemy.radius, this.worldHeight - enemy.radius);
 
       if (enemy.shootCooldown <= 0 && enemy.kind !== "scout") {
         this.enemyFire(enemy, player);
@@ -499,7 +500,7 @@ export class Game {
         projectile.position.x < -50 ||
         projectile.position.x > WORLD_WIDTH + 50 ||
         projectile.position.y < -50 ||
-        projectile.position.y > WORLD_HEIGHT + 50;
+        projectile.position.y > this.worldHeight + 50;
 
       if (projectile.friendly) {
         for (let enemyIndex = this.enemies.length - 1; enemyIndex >= 0; enemyIndex -= 1) {
@@ -696,8 +697,9 @@ export class Game {
 
   private render(time: number): void {
     const context = this.context;
-    context.setTransform(this.canvas.width / WORLD_WIDTH, 0, 0, this.canvas.height / WORLD_HEIGHT, 0, 0);
-    context.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    const scale = this.canvas.width / WORLD_WIDTH;
+    context.setTransform(scale, 0, 0, scale, 0, 0);
+    context.clearRect(0, 0, WORLD_WIDTH, this.worldHeight);
     this.renderBackground(time);
 
     for (const particle of this.particles) {
@@ -726,18 +728,18 @@ export class Game {
 
     if (this.screenFlash > 0) {
       context.fillStyle = `rgba(255, 55, 88, ${this.screenFlash * 0.17})`;
-      context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+      context.fillRect(0, 0, WORLD_WIDTH, this.worldHeight);
     }
   }
 
   private renderBackground(time: number): void {
     const context = this.context;
-    const gradient = context.createLinearGradient(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    const gradient = context.createLinearGradient(0, 0, WORLD_WIDTH, this.worldHeight);
     gradient.addColorStop(0, "#050d1b");
     gradient.addColorStop(0.55, "#030914");
     gradient.addColorStop(1, "#090713");
     context.fillStyle = gradient;
-    context.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    context.fillRect(0, 0, WORLD_WIDTH, this.worldHeight);
 
     context.strokeStyle = "rgba(61, 227, 255, 0.055)";
     context.lineWidth = 1;
@@ -746,9 +748,9 @@ export class Game {
     context.beginPath();
     for (let x = -gridOffset; x < WORLD_WIDTH; x += 80) {
       context.moveTo(x, 0);
-      context.lineTo(x, WORLD_HEIGHT);
+      context.lineTo(x, this.worldHeight);
     }
-    for (let y = 40; y < WORLD_HEIGHT; y += 80) {
+    for (let y = 40; y < this.worldHeight; y += 80) {
       context.moveTo(0, y);
       context.lineTo(WORLD_WIDTH, y);
     }
@@ -979,6 +981,26 @@ export class Game {
 
   private readonly resizeCanvas = (): void => {
     const bounds = this.canvas.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0) {
+      return;
+    }
+    const nextWorldHeight = clamp(
+      (WORLD_WIDTH * bounds.height) / bounds.width,
+      WORLD_HEIGHT,
+      WORLD_HEIGHT * 1.4,
+    );
+    if (Math.abs(nextWorldHeight - this.worldHeight) > 0.5) {
+      const ratio = nextWorldHeight / this.worldHeight;
+      if (this.player) {
+        this.player.position.y *= ratio;
+      }
+      for (const enemy of this.enemies) enemy.position.y *= ratio;
+      for (const projectile of this.projectiles) projectile.position.y *= ratio;
+      for (const particle of this.particles) particle.position.y *= ratio;
+      for (const star of this.stars) star.y *= ratio;
+      this.worldHeight = nextWorldHeight;
+      this.input.setWorldHeight(nextWorldHeight);
+    }
     const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
     const width = Math.max(1, Math.round(bounds.width * pixelRatio));
     const height = Math.max(1, Math.round(bounds.height * pixelRatio));

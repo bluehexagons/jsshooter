@@ -225,7 +225,6 @@ kbd {
   position: relative;
   overflow: hidden;
   aspect-ratio: 2 / 1;
-  min-height: 260px;
   background: #030812;
 }
 
@@ -506,7 +505,6 @@ footer a {
   }
 
   .canvas-frame {
-    min-height: 330px;
     aspect-ratio: 1.45 / 1;
   }
 
