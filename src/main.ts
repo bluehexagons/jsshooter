@@ -90,6 +90,10 @@ function updateState(state: GameState, snapshot: GameSnapshot): void {
   pauseButton.disabled = state === "menu" || state === "gameover";
   pauseButton.firstChild!.textContent = state === "paused" ? "Resume " : "Pause ";
 
+  if (state === "menu") {
+    selectionOverlay.scrollTop = 0;
+  }
+
   if (state === "paused") {
     statusKicker.textContent = "Flight suspended";
     statusTitle.textContent = "Paused";

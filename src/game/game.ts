@@ -152,6 +152,7 @@ export class Game {
         this.pause();
       }
     });
+    window.addEventListener("blur", () => this.pause());
 
     this.resizeCanvas();
     requestAnimationFrame(this.tick);
@@ -191,6 +192,10 @@ export class Game {
     this.projectiles.length = 0;
     this.enemies.length = 0;
     this.particles.length = 0;
+    this.credits = 0;
+    this.score = 0;
+    this.elapsed = 0;
+    this.wave = 1;
     this.setState("menu");
   }
 
