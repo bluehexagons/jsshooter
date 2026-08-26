@@ -1,0 +1,598 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap");
+
+:root {
+  color-scheme: dark;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  color: #eef7ff;
+  background: #030711;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #eef7ff;
+  --muted: #8a9bad;
+  --panel: rgba(9, 17, 31, 0.84);
+  --panel-strong: #0b1525;
+  --line: rgba(149, 184, 219, 0.2);
+  --cyan: #3de3ff;
+  --cyan-soft: rgba(61, 227, 255, 0.16);
+  --green: #70f0b1;
+  --red: #ff5c75;
+  --amber: #ffc766;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 20% -10%, rgba(25, 77, 115, 0.3), transparent 32rem),
+    #030711;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  overflow-x: hidden;
+}
+
+button,
+canvas {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font: inherit;
+}
+
+button:focus-visible,
+canvas:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
+.app-shell {
+  width: min(100% - 32px, 1280px);
+  margin: 0 auto;
+  padding: 34px 0 24px;
+}
+
+.masthead,
+.section-heading,
+.selection-heading,
+.selection-footer,
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.masthead {
+  margin-bottom: 18px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1,
+h2 {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  letter-spacing: -0.035em;
+}
+
+h1 {
+  font-size: clamp(2rem, 5vw, 4rem);
+  line-height: 0.85;
+  text-transform: uppercase;
+  text-shadow: 0 0 24px rgba(61, 227, 255, 0.28);
+}
+
+h2 {
+  font-size: clamp(1.35rem, 3vw, 2.15rem);
+}
+
+.eyebrow,
+.hud-label {
+  color: var(--cyan);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.eyebrow {
+  margin-bottom: 8px;
+}
+
+.quiet-button,
+.primary-button,
+.repair-button,
+.weapon-action {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: 140ms ease;
+  transition-property: color, background, border-color, transform;
+}
+
+.quiet-button,
+.repair-button {
+  padding: 10px 14px;
+}
+
+.quiet-button:hover:not(:disabled),
+.repair-button:hover:not(:disabled),
+.weapon-action:hover:not(:disabled) {
+  border-color: rgba(61, 227, 255, 0.6);
+  background: var(--cyan-soft);
+}
+
+.quiet-button:disabled,
+.repair-button:disabled,
+.weapon-action:disabled {
+  color: #667382;
+  cursor: not-allowed;
+}
+
+.primary-button {
+  padding: 11px 18px;
+  border-color: var(--cyan);
+  color: #021016;
+  background: var(--cyan);
+  font-weight: 600;
+}
+
+.primary-button:hover {
+  background: #8befff;
+  transform: translateY(-1px);
+}
+
+kbd {
+  padding: 2px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom-color: rgba(255, 255, 255, 0.4);
+  border-radius: 3px;
+  color: #c9d6e2;
+  background: rgba(0, 0, 0, 0.25);
+  font: inherit;
+  font-size: 0.7rem;
+}
+
+.game-panel,
+.hangar,
+.controls {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(16px);
+}
+
+.hud {
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: minmax(190px, 1.5fr) repeat(4, minmax(85px, 0.55fr));
+  gap: 1px;
+  border-bottom: 1px solid var(--line);
+  background: var(--line);
+}
+
+.hud > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 16px;
+  background: var(--panel-strong);
+}
+
+.hud strong {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-size: 1.05rem;
+}
+
+.health-readout {
+  display: grid !important;
+  grid-template-columns: auto minmax(60px, 1fr) auto;
+}
+
+.health-track {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.health-fill {
+  width: 0;
+  height: 100%;
+  background: var(--green);
+  box-shadow: 0 0 12px currentColor;
+  transition: width 150ms ease, background 150ms ease;
+}
+
+.canvas-frame {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 2 / 1;
+  min-height: 260px;
+  background: #030812;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.game-overlay {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background:
+    linear-gradient(90deg, rgba(3, 8, 18, 0.96), rgba(3, 8, 18, 0.82)),
+    repeating-linear-gradient(0deg, transparent 0 11px, rgba(61, 227, 255, 0.02) 12px);
+}
+
+.selection-overlay {
+  padding: clamp(20px, 4vw, 52px);
+}
+
+.selection-heading > p {
+  max-width: 38ch;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+
+.ship-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 8px;
+  margin: clamp(20px, 4vh, 38px) 0;
+}
+
+.ship-card {
+  min-width: 0;
+  padding: 14px 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.025);
+  cursor: pointer;
+  transition: 140ms ease;
+}
+
+.ship-card:hover,
+.ship-card[aria-pressed="true"] {
+  border-color: var(--cyan);
+  color: var(--ink);
+  background: var(--cyan-soft);
+  transform: translateY(-2px);
+}
+
+.ship-card svg {
+  width: 100%;
+  max-width: 76px;
+  height: 58px;
+  overflow: visible;
+  color: currentColor;
+  filter: drop-shadow(0 0 8px rgba(61, 227, 255, 0.3));
+}
+
+.ship-card strong,
+.ship-card span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ship-card strong {
+  margin-top: 8px;
+  color: var(--ink);
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-size: 0.82rem;
+}
+
+.ship-card span {
+  margin-top: 3px;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+}
+
+.selection-footer > p {
+  max-width: 65ch;
+  color: #b8c5d1;
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+.status-overlay {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 30px;
+  text-align: center;
+}
+
+.status-overlay[hidden] {
+  display: none;
+}
+
+.status-overlay > p:not(.eyebrow) {
+  max-width: 46ch;
+  margin: 12px 0 22px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.overlay-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.mobile-hint {
+  display: none;
+  justify-content: space-between;
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+}
+
+.hangar,
+.controls {
+  margin-top: 16px;
+  padding: clamp(18px, 3vw, 28px);
+}
+
+.hangar[hidden] {
+  display: none;
+}
+
+.repair-button.affordable {
+  border-color: rgba(112, 240, 177, 0.4);
+  color: var(--green);
+}
+
+.weapon-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.weapon-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.weapon-card h3 {
+  margin: 0 0 4px;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-size: 0.95rem;
+}
+
+.weapon-card p {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+}
+
+.weapon-card .owned {
+  color: var(--green);
+}
+
+.weapon-action {
+  min-width: 84px;
+  padding: 8px 10px;
+  color: var(--cyan);
+  font-size: 0.68rem;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: 0.7fr 2fr;
+  align-items: center;
+  box-shadow: none;
+}
+
+.controls dl {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin: 0;
+}
+
+.controls dl > div {
+  min-width: 0;
+}
+
+.controls dt,
+.controls dd {
+  margin: 0;
+}
+
+.controls dt {
+  min-height: 28px;
+  color: var(--ink);
+  font-size: 0.68rem;
+}
+
+.controls dd {
+  color: var(--muted);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+}
+
+footer {
+  padding: 22px 2px 0;
+  color: #647587;
+  font-size: 0.62rem;
+}
+
+footer a {
+  color: #90adca;
+}
+
+@media (max-width: 900px) {
+  .ship-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .weapon-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .controls,
+  .controls dl {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 680px) {
+  .app-shell {
+    width: 100%;
+    padding-top: 20px;
+  }
+
+  .masthead,
+  footer {
+    margin-inline: 14px;
+  }
+
+  .game-panel,
+  .hangar,
+  .controls {
+    border-inline: 0;
+    border-radius: 0;
+  }
+
+  .hud {
+    grid-template-columns: 1.5fr repeat(2, 0.75fr);
+  }
+
+  .hud > div {
+    padding: 9px 10px;
+  }
+
+  .hud > div:nth-child(4),
+  .hud > div:nth-child(5) {
+    display: none;
+  }
+
+  .canvas-frame {
+    min-height: 330px;
+    aspect-ratio: 1.45 / 1;
+  }
+
+  .selection-heading > p {
+    display: none;
+  }
+
+  .selection-overlay {
+    padding: 18px 14px;
+  }
+
+  .ship-grid {
+    grid-template-columns: repeat(4, 1fr);
+    margin: 16px 0;
+  }
+
+  .ship-card {
+    padding: 8px 4px;
+  }
+
+  .ship-card svg {
+    height: 34px;
+  }
+
+  .ship-card span {
+    display: none;
+  }
+
+  .selection-footer {
+    align-items: end;
+  }
+
+  .selection-footer > p {
+    font-size: 0.64rem;
+  }
+
+  .mobile-hint {
+    display: flex;
+  }
+
+  .weapon-card {
+    grid-template-columns: 1fr;
+  }
+
+  .weapon-action {
+    width: 100%;
+  }
+
+  .controls {
+    gap: 18px;
+  }
+
+  .controls dl {
+    gap: 16px 8px;
+  }
+
+  footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 430px) {
+  .masthead .quiet-button {
+    padding-inline: 10px;
+  }
+
+  .selection-footer {
+    display: grid;
+    gap: 12px;
+  }
+
+  .selection-footer .primary-button {
+    width: 100%;
+  }
+
+  .weapon-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

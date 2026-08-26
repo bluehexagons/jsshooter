@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Corvus, a fast wireframe side-scrolling browser shooter."
+    />
+    <meta name="theme-color" content="#060b16" />
+    <title>Corvus · Wireframe shooter</title>
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Recovered from 2010 · rebuilt for today</p>
+          <h1>Corvus</h1>
+        </div>
+        <button class="quiet-button" id="pause-button" type="button" disabled>
+          Pause
+          <kbd>P</kbd>
+        </button>
+      </header>
+
+      <section class="game-panel" aria-label="Corvus game">
+        <div class="hud" aria-live="polite">
+          <div class="health-readout">
+            <span class="hud-label">Hull</span>
+            <div class="health-track" aria-hidden="true">
+              <div class="health-fill" id="health-fill"></div>
+            </div>
+            <strong id="health-value">—</strong>
+          </div>
+          <div><span class="hud-label">Credits</span><strong id="credits-value">0</strong></div>
+          <div><span class="hud-label">Wave</span><strong id="wave-value">—</strong></div>
+          <div><span class="hud-label">Score</span><strong id="score-value">0</strong></div>
+          <div><span class="hud-label">Time</span><strong id="time-value">0:00</strong></div>
+        </div>
+
+        <div class="canvas-frame">
+          <canvas id="game-canvas" tabindex="0" aria-label="Corvus game field">
+            Your browser does not support canvas.
+          </canvas>
+
+          <section class="game-overlay selection-overlay" id="selection-overlay">
+            <div class="selection-heading">
+              <div>
+                <p class="eyebrow">Choose a frame</p>
+                <h2>Ready your ship</h2>
+              </div>
+              <p>Every frame has a distinct hull, speed, and armory.</p>
+            </div>
+            <div class="ship-grid" id="ship-grid"></div>
+            <div class="selection-footer">
+              <p id="ship-description"></p>
+              <button class="primary-button" id="launch-button" type="button">
+                Launch <span aria-hidden="true">→</span>
+              </button>
+            </div>
+          </section>
+
+          <section class="game-overlay status-overlay" id="status-overlay" hidden>
+            <p class="eyebrow" id="status-kicker">Flight suspended</p>
+            <h2 id="status-title">Paused</h2>
+            <p id="status-copy">Press P or tap resume when you are ready.</p>
+            <div class="overlay-actions">
+              <button class="primary-button" id="resume-button" type="button">Resume</button>
+              <button class="quiet-button" id="new-flight-button" type="button">
+                Choose another ship
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <div class="mobile-hint" aria-hidden="true">
+          <span>Drag left side to move</span>
+          <span>Touch right side to aim + fire</span>
+        </div>
+      </section>
+
+      <section class="hangar" id="hangar" aria-labelledby="hangar-title" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Mid-flight outfitting</p>
+            <h2 id="hangar-title">Hangar uplink</h2>
+          </div>
+          <button class="repair-button" id="repair-button" type="button"></button>
+        </div>
+        <div class="weapon-grid" id="weapon-grid"></div>
+      </section>
+
+      <section class="controls" aria-labelledby="controls-title">
+        <div>
+          <p class="eyebrow">Flight manual</p>
+          <h2 id="controls-title">Controls</h2>
+        </div>
+        <dl>
+          <div><dt><kbd>WASD</kbd> / <kbd>↑↓←→</kbd></dt><dd>Move</dd></div>
+          <div><dt>Mouse</dt><dd>Aim</dd></div>
+          <div><dt>Hold click / <kbd>Space</kbd></dt><dd>Fire</dd></div>
+          <div><dt><kbd>P</kbd> / <kbd>Esc</kbd></dt><dd>Pause</dd></div>
+        </dl>
+      </section>
+
+      <footer>
+        <span>Corvus began as an unfinished browser experiment in 2010.</span>
+        <a href="https://github.com/bluehexagons/jsshooter">Source on GitHub</a>
+      </footer>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
