@@ -178,6 +178,7 @@ export class Game {
     window.addEventListener("blur", () => this.pause());
 
     this.resizeCanvas();
+    this.render(performance.now() / 1000);
     requestAnimationFrame(this.tick);
     this.emitState();
   }
@@ -272,6 +273,7 @@ export class Game {
       contactCooldown: 0,
       hitFlash: 0,
     });
+    this.render(performance.now() / 1000);
     this.emitSnapshot();
     return true;
   }
@@ -289,6 +291,7 @@ export class Game {
     const oldMaximum = weaponMaxDurability(WEAPONS[id], mount.level);
     mount.level += 1;
     mount.health += weaponMaxDurability(WEAPONS[id], mount.level) - oldMaximum;
+    this.render(performance.now() / 1000);
     this.emitSnapshot();
     return true;
   }
@@ -305,6 +308,7 @@ export class Game {
     }
     this.credits -= cost;
     mount.health = weaponMaxDurability(definition, mount.level);
+    this.render(performance.now() / 1000);
     this.emitSnapshot();
     return true;
   }
@@ -321,6 +325,7 @@ export class Game {
     }
     this.credits -= cost;
     mount.ammo = definition.ammoCapacity;
+    this.render(performance.now() / 1000);
     this.emitSnapshot();
     return true;
   }
@@ -1198,6 +1203,7 @@ export class Game {
   private setState(state: GameState): void {
     this.state = state;
     this.input.setEnabled(state === "playing");
+    this.render(performance.now() / 1000);
     this.emitState();
   }
 
