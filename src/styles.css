@@ -571,11 +571,18 @@ footer a {
   }
 
   .controls {
+    grid-template-columns: 1fr;
     gap: 18px;
   }
 
   .controls dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 16px 8px;
+  }
+
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   footer {
@@ -589,12 +596,45 @@ footer a {
     padding-inline: 10px;
   }
 
-  .selection-footer {
-    display: grid;
-    gap: 12px;
+  .selection-overlay {
+    padding: 10px 10px 12px;
+  }
+
+  .selection-overlay .eyebrow {
+    margin-bottom: 4px;
+  }
+
+  .selection-overlay h2 {
+    font-size: 1.2rem;
+  }
+
+  .ship-grid {
+    gap: 6px;
+    margin: 8px 0;
+  }
+
+  .ship-card {
+    padding: 4px 2px 5px;
+  }
+
+  .ship-card svg {
+    height: 23px;
+  }
+
+  .ship-card strong {
+    margin-top: 2px;
+    font-size: 0.72rem;
+  }
+
+  .selection-footer > p {
+    display: none;
   }
 
   .selection-footer .primary-button {
+    width: 100%;
+  }
+
+  .repair-button {
     width: 100%;
   }
 

@@ -1,6 +1,11 @@
+import type { WireframeSegment } from "./config";
 import type { Point } from "./vector";
 
 export type EnemyKind = "scout" | "eagle" | "zipper" | "curve" | "wall" | "boss";
+
+export type EnemyCollision =
+  | { type: "circle"; radius: number }
+  | { type: "box"; halfWidth: number; halfHeight: number };
 
 export interface EnemyDefinition {
   radius: number;
@@ -11,6 +16,8 @@ export interface EnemyDefinition {
   resistance: number;
   color: string;
   shape: readonly Point[];
+  details: readonly WireframeSegment[];
+  collision: EnemyCollision;
 }
 
 export interface FormationPlacement {
@@ -25,13 +32,15 @@ export interface FormationDefinition {
   placements: readonly FormationPlacement[];
 }
 
-export type FormationId = "chevron" | "barricade";
+export type FormationId = "chevron" | "barricade" | "eagleWing" | "zipperGate";
 
 const SCOUT_SHAPE: readonly Point[] = [
-  { x: 14, y: 0 },
-  { x: -14, y: 10 },
-  { x: -8, y: 0 },
-  { x: -14, y: -10 },
+  { x: 16, y: 0 },
+  { x: -12, y: 10 },
+  { x: -7, y: 3 },
+  { x: -14, y: 0 },
+  { x: -7, y: -3 },
+  { x: -12, y: -10 },
 ];
 
 const EAGLE_SHAPE: readonly Point[] = [
@@ -46,12 +55,14 @@ const EAGLE_SHAPE: readonly Point[] = [
 ];
 
 const ZIPPER_SHAPE: readonly Point[] = [
-  { x: 13, y: 0 },
-  { x: -7, y: 4 },
-  { x: -7, y: 8 },
   { x: 22, y: 0 },
-  { x: -7, y: -8 },
-  { x: -7, y: -4 },
+  { x: 4, y: 4 },
+  { x: -8, y: 10 },
+  { x: -4, y: 2 },
+  { x: -13, y: 0 },
+  { x: -4, y: -2 },
+  { x: -8, y: -10 },
+  { x: 4, y: -4 },
 ];
 
 const CURVE_SHAPE: readonly Point[] = [
@@ -64,20 +75,29 @@ const CURVE_SHAPE: readonly Point[] = [
 ];
 
 const WALL_SHAPE: readonly Point[] = [
-  { x: 4, y: -60 },
-  { x: -4, y: -60 },
-  { x: -4, y: 60 },
-  { x: 4, y: 60 },
+  { x: 3, y: -60 },
+  { x: -3, y: -60 },
+  { x: -6, y: -48 },
+  { x: -6, y: 48 },
+  { x: -3, y: 60 },
+  { x: 3, y: 60 },
+  { x: 6, y: 48 },
+  { x: 6, y: -48 },
 ];
 
 const BOSS_SHAPE: readonly Point[] = [
-  { x: 86, y: -58 },
-  { x: 22, y: -58 },
-  { x: -20, y: 0 },
-  { x: 22, y: 58 },
-  { x: 86, y: 58 },
-  { x: 70, y: 23 },
-  { x: 70, y: -23 },
+  { x: 92, y: -60 },
+  { x: 22, y: -60 },
+  { x: -24, y: -18 },
+  { x: -12, y: 0 },
+  { x: -24, y: 18 },
+  { x: 22, y: 60 },
+  { x: 92, y: 60 },
+  { x: 72, y: 30 },
+  { x: 38, y: 24 },
+  { x: 8, y: 0 },
+  { x: 38, y: -24 },
+  { x: 72, y: -30 },
 ];
 
 export const ENEMIES: Readonly<Record<EnemyKind, EnemyDefinition>> = {
@@ -90,6 +110,12 @@ export const ENEMIES: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     resistance: 2,
     color: "#ff5c75",
     shape: SCOUT_SHAPE,
+    details: [
+      [{ x: -11, y: 0 }, { x: 13, y: 0 }],
+      [{ x: -8, y: 6 }, { x: 2, y: 0 }],
+      [{ x: -8, y: -6 }, { x: 2, y: 0 }],
+    ],
+    collision: { type: "circle", radius: 15 },
   },
   eagle: {
     radius: 19,
@@ -100,6 +126,12 @@ export const ENEMIES: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     resistance: 10,
     color: "#ff5c75",
     shape: EAGLE_SHAPE,
+    details: [
+      [{ x: -12, y: 0 }, { x: 16, y: 0 }],
+      [{ x: -3, y: 13 }, { x: 6, y: 0 }],
+      [{ x: -3, y: -13 }, { x: 6, y: 0 }],
+    ],
+    collision: { type: "circle", radius: 20 },
   },
   zipper: {
     radius: 14,
@@ -110,6 +142,12 @@ export const ENEMIES: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     resistance: 15,
     color: "#ff795c",
     shape: ZIPPER_SHAPE,
+    details: [
+      [{ x: -10, y: 0 }, { x: 19, y: 0 }],
+      [{ x: -5, y: 7 }, { x: 4, y: 2 }],
+      [{ x: -5, y: -7 }, { x: 4, y: -2 }],
+    ],
+    collision: { type: "circle", radius: 19 },
   },
   curve: {
     radius: 12,
@@ -120,6 +158,11 @@ export const ENEMIES: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     resistance: 2,
     color: "#ff8aa0",
     shape: CURVE_SHAPE,
+    details: [
+      [{ x: -9, y: -5 }, { x: 9, y: 5 }],
+      [{ x: -9, y: 5 }, { x: 9, y: -5 }],
+    ],
+    collision: { type: "circle", radius: 12 },
   },
   wall: {
     radius: 60,
@@ -130,9 +173,15 @@ export const ENEMIES: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     resistance: 50,
     color: "#718cff",
     shape: WALL_SHAPE,
+    details: [
+      [{ x: -6, y: -30 }, { x: 6, y: -30 }],
+      [{ x: -6, y: 0 }, { x: 6, y: 0 }],
+      [{ x: -6, y: 30 }, { x: 6, y: 30 }],
+    ],
+    collision: { type: "box", halfWidth: 6, halfHeight: 60 },
   },
   boss: {
-    radius: 78,
+    radius: 90,
     health: 820,
     reward: 900,
     speed: 75,
@@ -140,6 +189,12 @@ export const ENEMIES: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     resistance: 15,
     color: "#ffc766",
     shape: BOSS_SHAPE,
+    details: [
+      [{ x: 20, y: -52 }, { x: 65, y: -28 }],
+      [{ x: 20, y: 52 }, { x: 65, y: 28 }],
+      [{ x: -10, y: 0 }, { x: 46, y: 0 }],
+    ],
+    collision: { type: "circle", radius: 90 },
   },
 };
 
@@ -170,6 +225,29 @@ export const FORMATIONS: Readonly<Record<FormationId, FormationDefinition>> = {
       { kind: "scout", x: 12, y: 95 },
       { kind: "scout", x: 12, y: 115 },
       { kind: "scout", x: 24, y: 95 },
+    ],
+  },
+  eagleWing: {
+    height: 180,
+    speed: 140,
+    placements: [
+      { kind: "eagle", x: 0, y: 90 },
+      { kind: "eagle", x: 45, y: 45 },
+      { kind: "eagle", x: 45, y: 135 },
+      { kind: "scout", x: 85, y: 10 },
+      { kind: "scout", x: 85, y: 90 },
+      { kind: "scout", x: 85, y: 170 },
+    ],
+  },
+  zipperGate: {
+    height: 280,
+    speed: 95,
+    placements: [
+      { kind: "zipper", x: 0, y: 25 },
+      { kind: "zipper", x: 0, y: 255 },
+      { kind: "zipper", x: 45, y: 85 },
+      { kind: "zipper", x: 45, y: 195 },
+      { kind: "scout", x: 90, y: 140 },
     ],
   },
 };

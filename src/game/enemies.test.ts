@@ -8,8 +8,21 @@ describe("legacy formations", () => {
   });
 
   it("keeps the wall and eight escorts in the barricade", () => {
-    expect(FORMATIONS.barricade.placements.filter((placement) => placement.kind === "wall")).toHaveLength(1);
-    expect(FORMATIONS.barricade.placements.filter((placement) => placement.kind === "scout")).toHaveLength(8);
+    expect(
+      FORMATIONS.barricade.placements.filter((placement) => placement.kind === "wall"),
+    ).toHaveLength(1);
+    expect(
+      FORMATIONS.barricade.placements.filter((placement) => placement.kind === "scout"),
+    ).toHaveLength(8);
+  });
+
+  it("adds distinct pursuit and acceleration formations", () => {
+    expect(
+      FORMATIONS.eagleWing.placements.filter((placement) => placement.kind === "eagle"),
+    ).toHaveLength(3);
+    expect(
+      FORMATIONS.zipperGate.placements.filter((placement) => placement.kind === "zipper"),
+    ).toHaveLength(4);
   });
 
   it("fits a formation inside a short playfield", () => {

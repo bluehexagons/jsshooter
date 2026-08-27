@@ -55,6 +55,17 @@ function createShipCard(ship: (typeof SHIPS)[number]): HTMLButtonElement {
   polygon.setAttribute("stroke", "currentColor");
   polygon.setAttribute("stroke-width", "1.5");
   svg.append(polygon);
+  for (const [start, end] of ship.details) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", String(start.x));
+    line.setAttribute("y1", String(start.y));
+    line.setAttribute("x2", String(end.x));
+    line.setAttribute("y2", String(end.y));
+    line.setAttribute("stroke", "currentColor");
+    line.setAttribute("stroke-width", "1");
+    line.setAttribute("opacity", "0.72");
+    svg.append(line);
+  }
 
   const name = document.createElement("strong");
   name.textContent = ship.name;

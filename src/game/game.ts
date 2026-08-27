@@ -31,6 +31,16 @@ import {
   transformLocalPoint,
   usesFallbackCannon,
 } from "./mechanics";
+import {
+  bossArrivalThreatLimit,
+  chooseOpenLaneY,
+  chooseSpawn,
+  enemyThreat,
+  formationCuesForWave,
+  formationThreat,
+  randomSpawnInterval,
+  threatLimit,
+} from "./spawning";
 import { circlesOverlap, clamp, type Point, Vector } from "./vector";
 import {
   pulseClipSize,
@@ -129,6 +139,8 @@ interface Enemy {
   reward: number;
   contactDamage: number;
   age: number;
+  phase: number;
+  inFormation: boolean;
   pathOffset: number;
   shootCooldown: number;
   hitFlash: number;
@@ -160,6 +172,7 @@ interface SpawnEnemyOptions {
   xOffset?: number;
   speed?: number;
   pathOffset?: number;
+  inFormation?: boolean;
 }
 
 const REPAIR_RATE = 1.5;
@@ -432,12 +445,13 @@ export class Game {
     if (nextWave !== this.wave) {
       this.wave = nextWave;
       this.createBurst(new Vector(WORLD_WIDTH * 0.72, 52), "#3de3ff", 18);
-      if (this.wave % 5 !== 0) {
-        const id: FormationId = this.wave % 2 === 0 ? "barricade" : "chevron";
+      this.scheduledFormations.length = 0;
+      for (const cue of formationCuesForWave(this.wave)) {
+        const definition = FORMATIONS[cue.id];
         this.scheduledFormations.push({
-          at: this.elapsed + 0.7,
-          id,
-          preferredTop: 22 + Math.random() * (this.worldHeight - FORMATIONS[id].height - 44),
+          at: this.elapsed + cue.delay,
+          id: cue.id,
+          preferredTop: 22 + Math.random() * (this.worldHeight - definition.height - 44),
         });
       }
     }
@@ -472,6 +486,8 @@ export class Game {
     player.position.x = clamp(player.position.x, 35, WORLD_WIDTH * 0.62);
     player.position.y = clamp(player.position.y, 35, this.worldHeight - 35);
     player.angle = Vector.between(player.position, this.input.aim).angle;
+    this.clampPlayerToWorld(player);
+    player.angle = Vector.between(player.position, this.input.aim).angle;
     player.invulnerable = Math.max(0, player.invulnerable - delta);
     player.baseCooldown = advanceCooldown(player.baseCooldown, delta);
 
@@ -504,19 +520,28 @@ export class Game {
   }
 
   private updateSpawning(delta: number): void {
-    while ((this.scheduledFormations[0]?.at ?? Number.POSITIVE_INFINITY) <= this.elapsed) {
-      const scheduled = this.scheduledFormations.shift();
-      if (scheduled) {
+    this.spawnCooldown -= delta;
+    let bossActive = this.enemies.some((enemy) => enemy.kind === "boss");
+    const bossWave = this.wave >= 5 && this.wave % 5 === 0;
+    const scheduled = this.scheduledFormations[0];
+    if (scheduled && scheduled.at <= this.elapsed) {
+      const projectedThreat = this.activeThreat + formationThreat(scheduled.id);
+      if (!bossWave && !bossActive && projectedThreat <= threatLimit(this.wave) * 1.25) {
+        this.scheduledFormations.shift();
         this.spawnFormation(scheduled.id, scheduled.preferredTop);
+      } else {
+        scheduled.at = this.elapsed + 0.75;
       }
     }
 
-    this.spawnCooldown -= delta;
-    const bossWave = this.wave >= 5 && this.wave % 5 === 0;
     if (bossWave && this.lastBossWave !== this.wave) {
+      if (this.activeThreat > bossArrivalThreatLimit(this.wave)) {
+        this.spawnCooldown = Math.max(this.spawnCooldown, 0.55);
+        return;
+      }
       this.lastBossWave = this.wave;
       this.spawnEnemy("boss");
-      this.spawnCooldown = 2.5;
+      this.spawnCooldown = 3.5;
       return;
     }
 
@@ -524,19 +549,19 @@ export class Game {
       return;
     }
 
-    const interval = Math.max(0.34, 1.18 - this.wave * 0.055);
+    bossActive = this.enemies.some((enemy) => enemy.kind === "boss");
+    if (this.activeThreat >= threatLimit(this.wave)) {
+      this.spawnCooldown = 0.4;
+      return;
+    }
+
+    const interval = randomSpawnInterval(this.wave, bossActive);
     this.spawnCooldown += interval * (0.78 + Math.random() * 0.5);
-    const roll = Math.random();
-    if (this.wave >= 4 && roll > 0.94) {
-      this.spawnEnemy("wall");
-    } else if (this.wave >= 3 && roll > 0.83) {
+    const choice = chooseSpawn(this.wave, Math.random(), bossActive);
+    if (choice === "centipede") {
       this.spawnCentipede();
-    } else if (this.wave >= 3 && roll > 0.65) {
-      this.spawnEnemy("eagle");
-    } else if (this.wave >= 2 && roll > 0.42) {
-      this.spawnEnemy("zipper");
     } else {
-      this.spawnEnemy("scout");
+      this.spawnEnemy(choice);
     }
   }
 
@@ -548,12 +573,14 @@ export class Game {
         y: top + placement.y,
         xOffset: placement.x,
         speed: definition.speed,
+        inFormation: true,
       });
     }
+    this.spawnCooldown = Math.max(this.spawnCooldown, 2.1);
   }
 
   private spawnCentipede(): void {
-    const y = 55 + Math.random() * (this.worldHeight - 110);
+    const y = this.openSpawnY(ENEMIES.curve.radius);
     const length = centipedeLength(Math.random);
     for (let segment = 0; segment < length; segment += 1) {
       this.spawnEnemy("curve", {
@@ -561,15 +588,17 @@ export class Game {
         xOffset: segment * 26,
         speed: ENEMIES.curve.speed,
         pathOffset: y,
+        inFormation: true,
       });
     }
   }
 
   private spawnEnemy(kind: EnemyKind, options: SpawnEnemyOptions = {}): void {
     const definition = ENEMIES[kind];
-    const y = options.y ?? definition.radius + Math.random() * (this.worldHeight - definition.radius * 2);
+    const y = options.y ?? this.openSpawnY(definition.radius);
     const healthScale = 1 + (this.wave - 1) * 0.12;
-    const health = kind === "boss" ? definition.health + this.wave * 105 : definition.health * healthScale;
+    const health =
+      kind === "boss" ? definition.health + this.wave * 105 : definition.health * healthScale;
     this.enemies.push({
       id: this.nextEnemyId++,
       kind,
@@ -589,6 +618,8 @@ export class Game {
       ),
       contactDamage: definition.contactDamage,
       age: 0,
+      phase: Math.random() * Math.PI * 2,
+      inFormation: options.inFormation ?? false,
       pathOffset: options.pathOffset ?? y,
       shootCooldown: kind === "boss" ? 0.15 + Math.random() * 0.25 : Number.POSITIVE_INFINITY,
       hitFlash: 0,
@@ -605,7 +636,9 @@ export class Game {
       enemy.hitFlash = Math.max(0, enemy.hitFlash - delta * 5);
       enemy.shootCooldown -= delta;
 
-      if (enemy.kind === "eagle") {
+      if (enemy.kind === "scout" && !enemy.inFormation) {
+        enemy.position.y += Math.sin(enemy.age * 3.4 + enemy.phase) * 34 * delta;
+      } else if (enemy.kind === "eagle") {
         const speed = enemy.velocity.length;
         const desired = Vector.between(enemy.position, player.position).normalize().scale(speed);
         enemy.velocity.add(desired.scale(delta * 1.15)).normalize().scale(speed);
@@ -642,14 +675,20 @@ export class Game {
         this.enemyFire(enemy, player);
       }
 
-      const blockingMount = player.weapons.find((mount) => {
+      let blockingMount: WeaponMount | undefined;
+      let blockingDistance = Number.POSITIVE_INFINITY;
+      for (const mount of player.weapons) {
         const definition = WEAPONS[mount.id];
-        return this.enemyOverlapsCircle(
-          enemy,
-          this.weaponPosition(mount),
-          definition.collisionRadius,
-        );
-      });
+        const position = this.weaponPosition(mount);
+        if (!this.enemyOverlapsCircle(enemy, position, definition.collisionRadius)) {
+          continue;
+        }
+        const distance = Vector.between(enemy.position, position).length;
+        if (distance < blockingDistance) {
+          blockingDistance = distance;
+          blockingMount = mount;
+        }
+      }
       if (blockingMount) {
         if (blockingMount.contactCooldown <= 0) {
           blockingMount.contactCooldown = 0.22;
@@ -686,6 +725,19 @@ export class Game {
     }
   }
 
+  private get activeThreat(): number {
+    return this.enemies.reduce((total, enemy) => total + enemyThreat(enemy.kind), 0);
+  }
+
+  private openSpawnY(radius: number): number {
+    const minimum = radius + 18;
+    const maximum = this.worldHeight - radius - 18;
+    const occupied = this.enemies
+      .filter((enemy) => enemy.position.x > WORLD_WIDTH * 0.55)
+      .map((enemy) => enemy.position.y);
+    return chooseOpenLaneY(minimum, maximum, occupied, Math.random);
+  }
+
   private enemyFire(enemy: Enemy, player: Player): void {
     enemy.shootCooldown += 0.18 + Math.random() * 0.22;
     const direction = Vector.between(enemy.position, player.position).normalize();
@@ -706,7 +758,11 @@ export class Game {
   }
 
   private updateProjectiles(player: Player, delta: number): void {
-    for (let projectileIndex = this.projectiles.length - 1; projectileIndex >= 0; projectileIndex -= 1) {
+    for (
+      let projectileIndex = this.projectiles.length - 1;
+      projectileIndex >= 0;
+      projectileIndex -= 1
+    ) {
       const projectile = this.projectiles[projectileIndex];
       if (!projectile) {
         continue;
@@ -982,7 +1038,8 @@ export class Game {
     if (!player) {
       return new Vector();
     }
-    return this.playerOffsetPosition(player, WEAPONS[mount.id].mountOffset);
+    const offset = player.ship.mounts[mount.id];
+    return offset ? this.playerOffsetPosition(player, offset) : player.position.clone();
   }
 
   private weaponMuzzlePosition(mount: WeaponMount): Vector {
@@ -991,22 +1048,51 @@ export class Game {
       return new Vector();
     }
     const definition = WEAPONS[mount.id];
-    if (mount.id === "orbit") {
-      const position = this.playerOffsetPosition(player, definition.mountOffset);
-      const relative = new Vector(
-        definition.muzzleOffset.x - definition.mountOffset.x,
-        definition.muzzleOffset.y - definition.mountOffset.y,
-      );
-      const angle = player.angle + mount.phase * 0.18;
-      return position
-        .add(Vector.fromAngle(angle, relative.x))
-        .add(Vector.fromAngle(angle + Math.PI / 2, relative.y));
-    }
-    return this.playerOffsetPosition(player, definition.muzzleOffset);
+    const position = this.weaponPosition(mount);
+    const angle = player.angle + (mount.id === "orbit" ? mount.phase * 0.18 : 0);
+    return position
+      .add(Vector.fromAngle(angle, definition.muzzleOffset.x))
+      .add(Vector.fromAngle(angle + Math.PI / 2, definition.muzzleOffset.y));
   }
 
   private playerOffsetPosition(player: Player, offset: Point): Vector {
     return transformLocalPoint(player.position, player.angle, offset);
+  }
+
+  private clampPlayerToWorld(player: Player): void {
+    const padding = 8;
+    let minimumX = Number.POSITIVE_INFINITY;
+    let maximumX = Number.NEGATIVE_INFINITY;
+    let minimumY = Number.POSITIVE_INFINITY;
+    let maximumY = Number.NEGATIVE_INFINITY;
+    const includePoint = (point: Point, radius = 0): void => {
+      minimumX = Math.min(minimumX, point.x - radius);
+      maximumX = Math.max(maximumX, point.x + radius);
+      minimumY = Math.min(minimumY, point.y - radius);
+      maximumY = Math.max(maximumY, point.y + radius);
+    };
+
+    for (const point of player.ship.shape) {
+      includePoint(transformLocalPoint({ x: 0, y: 0 }, player.angle, point));
+    }
+    for (const mount of player.weapons) {
+      const offset = player.ship.mounts[mount.id];
+      if (offset) {
+        includePoint(
+          transformLocalPoint({ x: 0, y: 0 }, player.angle, offset),
+          WEAPONS[mount.id].collisionRadius,
+        );
+      }
+    }
+
+    const leftBoundary = Math.max(35, padding - minimumX);
+    const rightBoundary = Math.min(WORLD_WIDTH * 0.62, WORLD_WIDTH - padding - maximumX);
+    player.position.x = clamp(player.position.x, leftBoundary, rightBoundary);
+    player.position.y = clamp(
+      player.position.y,
+      Math.max(35, padding - minimumY),
+      Math.min(this.worldHeight - 35, this.worldHeight - padding - maximumY),
+    );
   }
 
   private destroyEnemy(index: number, enemy: Enemy): void {
@@ -1076,15 +1162,21 @@ export class Game {
   }
 
   private playerCollisionRadius(player: Player): number {
-    const visualRadius = Math.max(...player.ship.shape.map((point) => Math.hypot(point.x, point.y)));
-    return clamp(visualRadius * 0.5, 10, 18);
+    return player.ship.collisionRadius;
   }
 
   private enemyOverlapsCircle(enemy: Enemy, center: Point, radius: number): boolean {
-    if (enemy.kind === "wall") {
-      return rectangleCircleOverlap(enemy.position, 4, 60, center, radius);
+    const collision = ENEMIES[enemy.kind].collision;
+    if (collision.type === "box") {
+      return rectangleCircleOverlap(
+        enemy.position,
+        collision.halfWidth,
+        collision.halfHeight,
+        center,
+        radius,
+      );
     }
-    return circlesOverlap(enemy.position, enemy.radius, center, radius);
+    return circlesOverlap(enemy.position, collision.radius, center, radius);
   }
 
   private enemyProjectileHitFraction(
@@ -1093,20 +1185,21 @@ export class Game {
     end: Point,
     projectileRadius: number,
   ): number | null {
-    if (enemy.kind === "wall") {
+    const collision = ENEMIES[enemy.kind].collision;
+    if (collision.type === "box") {
       return segmentRectangleHitFraction(
         start,
         end,
         enemy.position,
-        4 + projectileRadius,
-        60 + projectileRadius,
+        collision.halfWidth + projectileRadius,
+        collision.halfHeight + projectileRadius,
       );
     }
     return segmentCircleHitFraction(
       start,
       end,
       enemy.position,
-      projectileRadius + enemy.radius,
+      projectileRadius + collision.radius,
     );
   }
 
@@ -1217,6 +1310,7 @@ export class Game {
     this.tracePolygon(player.ship.shape);
     context.fill();
     context.stroke();
+    this.traceSegments(player.ship.details);
 
     const tail = Math.min(...player.ship.shape.map((point) => point.x));
     context.beginPath();
@@ -1269,6 +1363,7 @@ export class Game {
     this.tracePolygon(definition.shape);
     context.fill();
     context.stroke();
+    this.traceSegments(definition.details);
     if (mount.id === "spray") {
       const barrelCount = 5 + mount.level * 2;
       for (let barrel = 0; barrel < barrelCount; barrel += 1) {
@@ -1311,9 +1406,11 @@ export class Game {
     context.shadowBlur = enemy.kind === "boss" ? 20 : 9;
     context.lineWidth = enemy.kind === "boss" ? 2.5 : 1.5;
 
-    this.tracePolygon(ENEMIES[enemy.kind].shape);
+    const definition = ENEMIES[enemy.kind];
+    this.tracePolygon(definition.shape);
     context.fill();
     context.stroke();
+    this.traceSegments(definition.details);
     if (enemy.kind === "boss") {
       context.rotate(-enemy.age * 0.7);
       context.beginPath();
@@ -1346,6 +1443,15 @@ export class Game {
       }
     }
     this.context.closePath();
+  }
+
+  private traceSegments(segments: readonly (readonly [Point, Point])[]): void {
+    for (const [start, end] of segments) {
+      this.context.beginPath();
+      this.context.moveTo(start.x, start.y);
+      this.context.lineTo(end.x, end.y);
+      this.context.stroke();
+    }
   }
 
   private getSnapshot(): GameSnapshot {
