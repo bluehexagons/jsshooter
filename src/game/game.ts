@@ -8,11 +8,14 @@ import {
   WEAPONS,
   type WeaponDefinition,
   type WeaponId,
+  weaponMaxDurability,
+  weaponRepairCost as calculateWeaponRepairCost,
   weaponUpgradeCost,
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "./config";
-import { InputController } from "./input";
+import { InputController, type QuickAction } from "./input";
+import { advanceCooldown, transformLocalPoint, usesFallbackCannon } from "./mechanics";
 import { circlesOverlap, clamp, type Point, Vector } from "./vector";
 
 export type GameState = "menu" | "playing" | "paused" | "gameover";
@@ -26,14 +29,24 @@ export interface GameSnapshot {
   score: number;
   elapsed: number;
   highScore: number;
+  quickAction: QuickAction;
 }
 
 export interface ShopItem {
   definition: WeaponDefinition;
   level: number | null;
+  slot: number | null;
   cost: number;
   canAfford: boolean;
   disabledReason: string | null;
+  health: number | null;
+  maxHealth: number | null;
+  repairCost: number;
+  canRepair: boolean;
+  ammo: number | null;
+  maxAmmo: number | null;
+  reloadCost: number;
+  canReload: boolean;
 }
 
 export interface GameCallbacks {
@@ -57,6 +70,10 @@ interface WeaponMount {
   level: number;
   cooldown: number;
   phase: number;
+  health: number;
+  ammo: number | null;
+  contactCooldown: number;
+  hitFlash: number;
 }
 
 interface Projectile {
@@ -105,8 +122,9 @@ interface Star {
 }
 
 const REPAIR_RATE = 1.5;
-const BASE_FIRE_COOLDOWN = 0.18;
+const BASE_FIRE_COOLDOWN = 0.5;
 const HIGH_SCORE_KEY = "corvus-high-score";
+const RESPAWN_COST = 2500;
 
 export class Game {
   private readonly context: CanvasRenderingContext2D;
@@ -138,7 +156,12 @@ export class Game {
       throw new Error("Canvas 2D is not supported by this browser.");
     }
     this.context = context;
-    this.input = new InputController(canvas, () => this.togglePause());
+    this.input = new InputController(
+      canvas,
+      () => this.togglePause(),
+      (action, slot) => this.applyQuickAction(action, slot),
+      () => this.emitSnapshot(),
+    );
     this.stars = Array.from({ length: 150 }, () => ({
       x: Math.random() * WORLD_WIDTH,
       y: Math.random() * this.worldHeight,
@@ -161,16 +184,7 @@ export class Game {
 
   public start(shipId: ShipId): void {
     const ship = getShip(shipId);
-    this.player = {
-      position: new Vector(115, this.worldHeight / 2),
-      velocity: new Vector(),
-      angle: 0,
-      health: ship.hull,
-      invulnerable: 1,
-      baseCooldown: 0,
-      weapons: [],
-      ship,
-    };
+    this.player = this.createPlayer(ship);
     this.projectiles.length = 0;
     this.enemies.length = 0;
     this.particles.length = 0;
@@ -185,6 +199,19 @@ export class Game {
     this.input.aim.y = this.worldHeight / 2;
     this.setState("playing");
     this.canvas.focus({ preventScroll: true });
+  }
+
+  private createPlayer(ship: ShipDefinition): Player {
+    return {
+      position: new Vector(115, this.worldHeight / 2),
+      velocity: new Vector(),
+      angle: 0,
+      health: ship.hull,
+      invulnerable: 1,
+      baseCooldown: 0,
+      weapons: [],
+      ship,
+    };
   }
 
   public returnToMenu(): void {
@@ -235,7 +262,16 @@ export class Game {
     }
 
     this.credits -= definition.price;
-    player.weapons.push({ id, level: 1, cooldown: 0, phase: 0 });
+    player.weapons.push({
+      id,
+      level: 1,
+      cooldown: definition.cooldown * (0.45 + player.weapons.length * 0.35),
+      phase: player.weapons.length * 0.7,
+      health: weaponMaxDurability(definition, 1),
+      ammo: definition.ammoCapacity,
+      contactCooldown: 0,
+      hitFlash: 0,
+    });
     this.emitSnapshot();
     return true;
   }
@@ -245,12 +281,46 @@ export class Game {
     if (!mount || mount.level >= MAX_WEAPON_LEVEL) {
       return false;
     }
-    const cost = weaponUpgradeCost(WEAPONS[id], mount.level);
+    const cost = weaponUpgradeCost(mount.level);
     if (this.credits < cost) {
       return false;
     }
     this.credits -= cost;
+    const oldMaximum = weaponMaxDurability(WEAPONS[id], mount.level);
     mount.level += 1;
+    mount.health += weaponMaxDurability(WEAPONS[id], mount.level) - oldMaximum;
+    this.emitSnapshot();
+    return true;
+  }
+
+  public repairWeapon(id: WeaponId): boolean {
+    const mount = this.player?.weapons.find((weapon) => weapon.id === id);
+    if (!mount) {
+      return false;
+    }
+    const definition = WEAPONS[id];
+    const cost = calculateWeaponRepairCost(definition, mount.level, mount.health);
+    if (cost <= 0 || this.credits < cost) {
+      return false;
+    }
+    this.credits -= cost;
+    mount.health = weaponMaxDurability(definition, mount.level);
+    this.emitSnapshot();
+    return true;
+  }
+
+  public reloadWeapon(id: WeaponId): boolean {
+    const mount = this.player?.weapons.find((weapon) => weapon.id === id);
+    const definition = WEAPONS[id];
+    if (!mount || mount.ammo === null || definition.ammoCapacity === null) {
+      return false;
+    }
+    const cost = (definition.ammoCapacity - mount.ammo) * definition.reloadPrice;
+    if (cost <= 0 || this.credits < cost) {
+      return false;
+    }
+    this.credits -= cost;
+    mount.ammo = definition.ammoCapacity;
     this.emitSnapshot();
     return true;
   }
@@ -325,32 +395,35 @@ export class Game {
 
   private updatePlayer(player: Player, delta: number): void {
     const movement = this.input.movement;
-    const desiredVelocity = movement.scale(player.ship.speed);
+    const desiredVelocity = movement.clone().scale(player.ship.speed);
     const responsiveness = 1 - Math.exp(-delta * 11);
     player.velocity.x += (desiredVelocity.x - player.velocity.x) * responsiveness;
     player.velocity.y += (desiredVelocity.y - player.velocity.y) * responsiveness;
     player.position.add(player.velocity.clone().scale(delta));
-    player.position.x = clamp(player.position.x, 35, WORLD_WIDTH - 35);
+    player.position.x += (110 - player.position.x) * Math.min(1, delta * 0.42);
+    player.position.x = clamp(player.position.x, 35, WORLD_WIDTH * 0.62);
     player.position.y = clamp(player.position.y, 35, this.worldHeight - 35);
     player.angle = Vector.between(player.position, this.input.aim).angle;
     player.invulnerable = Math.max(0, player.invulnerable - delta);
-    player.baseCooldown -= delta;
+    player.baseCooldown = advanceCooldown(player.baseCooldown, delta);
 
     for (const weapon of player.weapons) {
-      weapon.cooldown -= delta;
+      weapon.cooldown = advanceCooldown(weapon.cooldown, delta);
+      weapon.contactCooldown = Math.max(0, weapon.contactCooldown - delta);
+      weapon.hitFlash = Math.max(0, weapon.hitFlash - delta * 5);
     }
 
     if (!this.input.firing) {
       return;
     }
 
-    if (player.baseCooldown <= 0) {
+    if (usesFallbackCannon(player.weapons.length) && player.baseCooldown <= 0) {
       player.baseCooldown += BASE_FIRE_COOLDOWN;
       this.createPlayerProjectile(player.angle, 0, 7, 880, "#d8fbff");
     }
 
     for (const weapon of player.weapons) {
-      if (weapon.cooldown <= 0) {
+      if (weapon.cooldown <= 0 && weapon.ammo !== 0) {
         this.fireWeapon(weapon, player.angle);
       }
     }
@@ -454,7 +527,35 @@ export class Game {
         this.enemyFire(enemy, player);
       }
 
-      if (circlesOverlap(enemy.position, enemy.radius, player.position, 16)) {
+      const blockingMount = player.weapons.find((mount) => {
+        const definition = WEAPONS[mount.id];
+        return circlesOverlap(
+          enemy.position,
+          enemy.radius,
+          this.weaponPosition(mount),
+          definition.collisionRadius,
+        );
+      });
+      if (blockingMount) {
+        if (blockingMount.contactCooldown <= 0) {
+          blockingMount.contactCooldown = 0.22;
+          this.damageWeapon(blockingMount, enemy.contactDamage * 0.48);
+          enemy.health -= 16;
+        }
+        enemy.velocity.x = Math.max(150, Math.abs(enemy.velocity.x) * 0.7);
+        enemy.position.x += 4;
+        if (enemy.health <= 0) {
+          this.destroyEnemy(index, enemy);
+          continue;
+        }
+      } else if (
+        circlesOverlap(
+          enemy.position,
+          enemy.radius,
+          player.position,
+          this.playerCollisionRadius(player),
+        )
+      ) {
         this.damagePlayer(enemy.contactDamage);
         enemy.health -= 65;
         enemy.velocity.x += 180;
@@ -530,9 +631,30 @@ export class Game {
           }
           projectile.pierce -= 1;
         }
-      } else if (circlesOverlap(projectile.position, projectile.radius, player.position, 15)) {
-        this.damagePlayer(projectile.damage);
-        removeProjectile = true;
+      } else {
+        const blockingMount = player.weapons.find((mount) => {
+          const definition = WEAPONS[mount.id];
+          return circlesOverlap(
+            projectile.position,
+            projectile.radius,
+            this.weaponPosition(mount),
+            definition.collisionRadius,
+          );
+        });
+        if (blockingMount) {
+          this.damageWeapon(blockingMount, projectile.damage);
+          removeProjectile = true;
+        } else if (
+          circlesOverlap(
+            projectile.position,
+            projectile.radius,
+            player.position,
+            this.playerCollisionRadius(player),
+          )
+        ) {
+          this.damagePlayer(projectile.damage);
+          removeProjectile = true;
+        }
       }
 
       if (removeProjectile) {
@@ -560,78 +682,52 @@ export class Game {
     const definition = WEAPONS[mount.id];
     const cooldown = definition.cooldown / (1 + (mount.level - 1) * 0.12);
     const damage = definition.damage * (1 + (mount.level - 1) * 0.28);
+    const origin = this.weaponMuzzlePosition(mount);
+    const fire = (angle: number, offset = 0, radius = 3.5, pierce = 0): void => {
+      this.createPlayerProjectile(
+        angle,
+        offset,
+        damage,
+        definition.projectileSpeed,
+        definition.color,
+        radius,
+        pierce,
+        origin,
+      );
+    };
     mount.cooldown += cooldown;
     mount.phase += 0.43;
+    if (mount.ammo !== null) {
+      mount.ammo = Math.max(0, mount.ammo - 1);
+    }
 
     switch (mount.id) {
       case "rapid":
-        this.createPlayerProjectile(playerAngle - 0.018, -10, damage, definition.projectileSpeed, definition.color);
+        fire(playerAngle - 0.018);
         break;
       case "rapid2":
-        this.createPlayerProjectile(playerAngle + 0.018, 10, damage, definition.projectileSpeed, definition.color);
+        fire(playerAngle + 0.018);
         break;
       case "fan":
-        this.createPlayerProjectile(
-          playerAngle + Math.sin(mount.phase) * 0.68,
-          0,
-          damage,
-          definition.projectileSpeed,
-          definition.color,
-        );
+        fire(playerAngle + Math.sin(mount.phase) * 0.68);
         break;
       case "pulse":
-        this.createPlayerProjectile(playerAngle, 0, damage, definition.projectileSpeed, definition.color, 8, 1);
+        fire(playerAngle, 0, 8, 1);
         break;
       case "spray":
-        for (let shot = -3; shot <= 3; shot += 1) {
-          this.createPlayerProjectile(
-            playerAngle + shot * 0.14,
-            shot * 2,
-            damage,
-            definition.projectileSpeed,
-            definition.color,
-          );
-        }
+        fire(playerAngle + Math.sin(mount.phase * 0.72) * 1.05);
         break;
       case "laser":
-        this.createPlayerProjectile(
-          playerAngle,
-          0,
-          damage,
-          definition.projectileSpeed,
-          definition.color,
-          2.5,
-          1 + Math.floor(mount.level / 2),
-        );
+        fire(playerAngle, 0, 2.5, 1 + Math.floor(mount.level / 2));
         break;
       case "orbit":
-        this.createPlayerProjectile(
-          playerAngle + Math.sin(mount.phase * 1.7) * 0.3,
-          Math.sin(mount.phase) * 15,
-          damage,
-          definition.projectileSpeed,
-          definition.color,
-        );
+        fire(playerAngle + Math.sin(mount.phase * 1.7) * 0.3, Math.sin(mount.phase) * 4);
         break;
       case "shell":
       case "shell2": {
         const side = mount.id === "shell" ? -1 : 1;
-        this.createPlayerProjectile(
-          playerAngle - 0.035 * side,
-          side * 12,
-          damage,
-          definition.projectileSpeed,
-          definition.color,
-          5,
-        );
-        this.createPlayerProjectile(
-          playerAngle + 0.035 * side,
-          side * 5,
-          damage,
-          definition.projectileSpeed,
-          definition.color,
-          5,
-        );
+        fire(playerAngle - 0.035 * side, -4, 5);
+        fire(playerAngle + 0.035 * side, 4, 5);
         break;
       }
     }
@@ -645,15 +741,17 @@ export class Game {
     color: string,
     radius = 3.5,
     pierce = 0,
+    origin?: Point,
   ): void {
     const player = this.player;
     if (!player) {
       return;
     }
-    const forward = Vector.fromAngle(angle, 26);
+    const start = origin ? new Vector(origin.x, origin.y) : player.position.clone();
+    const forward = Vector.fromAngle(angle, origin ? 4 : 26);
     const perpendicular = Vector.fromAngle(angle + Math.PI / 2, perpendicularOffset);
     this.projectiles.push({
-      position: player.position.clone().add(forward).add(perpendicular),
+      position: start.add(forward).add(perpendicular),
       velocity: Vector.fromAngle(angle, speed),
       radius,
       damage,
@@ -663,6 +761,38 @@ export class Game {
       pierce,
       hitEnemies: new Set(),
     });
+  }
+
+  private weaponPosition(mount: WeaponMount): Vector {
+    const player = this.player;
+    if (!player) {
+      return new Vector();
+    }
+    return this.playerOffsetPosition(player, WEAPONS[mount.id].mountOffset);
+  }
+
+  private weaponMuzzlePosition(mount: WeaponMount): Vector {
+    const player = this.player;
+    if (!player) {
+      return new Vector();
+    }
+    const definition = WEAPONS[mount.id];
+    if (mount.id === "orbit") {
+      const position = this.playerOffsetPosition(player, definition.mountOffset);
+      const relative = new Vector(
+        definition.muzzleOffset.x - definition.mountOffset.x,
+        definition.muzzleOffset.y - definition.mountOffset.y,
+      );
+      const angle = player.angle + mount.phase * 0.18;
+      return position
+        .add(Vector.fromAngle(angle, relative.x))
+        .add(Vector.fromAngle(angle + Math.PI / 2, relative.y));
+    }
+    return this.playerOffsetPosition(player, definition.muzzleOffset);
+  }
+
+  private playerOffsetPosition(player: Player, offset: Point): Vector {
+    return transformLocalPoint(player.position, player.angle, offset);
   }
 
   private destroyEnemy(index: number, enemy: Enemy): void {
@@ -682,9 +812,54 @@ export class Game {
     this.screenFlash = 0.5;
     this.createBurst(player.position, "#3de3ff", 12);
     if (player.health <= 0) {
-      this.saveHighScore();
-      this.setState("gameover");
+      if (this.credits >= RESPAWN_COST) {
+        this.credits -= RESPAWN_COST;
+        this.player = this.createPlayer(player.ship);
+        this.player.invulnerable = 2;
+        for (let index = this.enemies.length - 1; index >= 0; index -= 1) {
+          const enemy = this.enemies[index];
+          if (!enemy) {
+            continue;
+          }
+          enemy.health -= 80;
+          if (enemy.health <= 0) {
+            this.enemies.splice(index, 1);
+            this.createBurst(enemy.position, "#ff5c75", 10);
+          }
+        }
+        for (let index = this.projectiles.length - 1; index >= 0; index -= 1) {
+          if (!this.projectiles[index]?.friendly) {
+            this.projectiles.splice(index, 1);
+          }
+        }
+      } else {
+        this.saveHighScore();
+        this.setState("gameover");
+      }
     }
+  }
+
+  private damageWeapon(mount: WeaponMount, damage: number): void {
+    const player = this.player;
+    if (!player) {
+      return;
+    }
+    const position = this.weaponPosition(mount);
+    mount.health = Math.max(0, mount.health - damage);
+    mount.hitFlash = 1;
+    this.createBurst(position, WEAPONS[mount.id].color, 5);
+    if (mount.health <= 0) {
+      const index = player.weapons.indexOf(mount);
+      if (index >= 0) {
+        player.weapons.splice(index, 1);
+      }
+      this.createBurst(position, "#f7fbff", 18);
+    }
+  }
+
+  private playerCollisionRadius(player: Player): number {
+    const visualRadius = Math.max(...player.ship.shape.map((point) => Math.hypot(point.x, point.y)));
+    return clamp(visualRadius * 0.5, 10, 18);
   }
 
   private createBurst(position: Point, color: string, count: number): void {
@@ -785,13 +960,18 @@ export class Game {
     context.fill();
     context.stroke();
 
+    const tail = Math.min(...player.ship.shape.map((point) => point.x));
     context.beginPath();
-    context.moveTo(-17, -5);
-    context.lineTo(-27 - Math.random() * 9, 0);
-    context.lineTo(-17, 5);
+    context.moveTo(tail, -4);
+    context.lineTo(tail - 10 - Math.random() * 8, 0);
+    context.lineTo(tail, 4);
     context.strokeStyle = "#70f0b1";
     context.stroke();
     context.restore();
+
+    for (const mount of player.weapons) {
+      this.renderWeaponMount(player, mount, time);
+    }
 
     context.strokeStyle = "rgba(61, 227, 255, 0.2)";
     context.lineWidth = 1;
@@ -810,6 +990,37 @@ export class Game {
     context.lineTo(this.input.aim.x + 14, this.input.aim.y);
     context.strokeStyle = "rgba(216, 251, 255, 0.72)";
     context.stroke();
+  }
+
+  private renderWeaponMount(player: Player, mount: WeaponMount, time: number): void {
+    const context = this.context;
+    const definition = WEAPONS[mount.id];
+    const position = this.weaponPosition(mount);
+    const maximum = weaponMaxDurability(definition, mount.level);
+    const damaged = mount.health < maximum;
+    const blinking = mount.hitFlash > 0 && Math.floor(time * 18) % 2 === 0;
+
+    context.save();
+    context.translate(position.x, position.y);
+    context.rotate(player.angle + (mount.id === "orbit" ? mount.phase * 0.18 : 0));
+    context.strokeStyle = blinking ? "#ffffff" : definition.color;
+    context.fillStyle = `${definition.color}18`;
+    context.shadowColor = definition.color;
+    context.shadowBlur = blinking ? 18 : 9;
+    context.lineWidth = 1.7;
+    this.tracePolygon(definition.shape);
+    context.fill();
+    context.stroke();
+    context.restore();
+
+    if (damaged || mount.hitFlash > 0) {
+      const width = definition.collisionRadius * 2;
+      const ratio = clamp(mount.health / maximum, 0, 1);
+      context.fillStyle = "rgba(255,255,255,0.12)";
+      context.fillRect(position.x - width / 2, position.y - definition.collisionRadius - 8, width, 2);
+      context.fillStyle = ratio < 0.3 ? "#ff5c75" : definition.color;
+      context.fillRect(position.x - width / 2, position.y - definition.collisionRadius - 8, width * ratio, 2);
+    }
   }
 
   private renderEnemy(enemy: Enemy): void {
@@ -920,6 +1131,7 @@ export class Game {
       score: this.score,
       elapsed: this.elapsed,
       highScore: this.highScore,
+      quickAction: this.input.quickAction,
     };
   }
 
@@ -932,7 +1144,18 @@ export class Game {
       const definition = WEAPONS[id];
       const mount = player.weapons.find((weapon) => weapon.id === id);
       const level = mount?.level ?? null;
-      const cost = mount ? weaponUpgradeCost(definition, mount.level) : definition.price;
+      const slot = mount ? player.weapons.indexOf(mount) : null;
+      const cost = mount ? weaponUpgradeCost(mount.level) : definition.price;
+      const maxHealth = mount ? weaponMaxDurability(definition, mount.level) : null;
+      const repairCost = mount
+        ? calculateWeaponRepairCost(definition, mount.level, mount.health)
+        : 0;
+      const reloadCost =
+        mount?.ammo !== null &&
+        mount?.ammo !== undefined &&
+        definition.ammoCapacity !== null
+          ? (definition.ammoCapacity - mount.ammo) * definition.reloadPrice
+          : 0;
       let disabledReason: string | null = null;
       if (mount?.level === MAX_WEAPON_LEVEL) {
         disabledReason = "Max level";
@@ -942,11 +1165,34 @@ export class Game {
       return {
         definition,
         level,
+        slot,
         cost,
         canAfford: disabledReason === null && this.credits >= cost,
         disabledReason,
+        health: mount?.health ?? null,
+        maxHealth,
+        repairCost,
+        canRepair: repairCost > 0 && this.credits >= repairCost,
+        ammo: mount?.ammo ?? null,
+        maxAmmo: mount ? definition.ammoCapacity : null,
+        reloadCost,
+        canReload: reloadCost > 0 && this.credits >= reloadCost,
       };
     });
+  }
+
+  private applyQuickAction(action: QuickAction, slot: number): void {
+    const mount = this.player?.weapons[slot];
+    if (!mount) {
+      return;
+    }
+    if (action === "upgrade") {
+      this.upgradeWeapon(mount.id);
+    } else if (action === "repair") {
+      this.repairWeapon(mount.id);
+    } else {
+      this.reloadWeapon(mount.id);
+    }
   }
 
   private setState(state: GameState): void {

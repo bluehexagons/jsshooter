@@ -25,6 +25,7 @@ const pauseButton = requiredElement<HTMLButtonElement>("#pause-button");
 const hangar = requiredElement<HTMLElement>("#hangar");
 const weaponGrid = requiredElement<HTMLDivElement>("#weapon-grid");
 const repairButton = requiredElement<HTMLButtonElement>("#repair-button");
+const quickActionValue = requiredElement<HTMLElement>("#quick-action-value");
 const healthFill = requiredElement<HTMLDivElement>("#health-fill");
 const healthValue = requiredElement<HTMLElement>("#health-value");
 const creditsValue = requiredElement<HTMLElement>("#credits-value");
@@ -46,7 +47,7 @@ function createShipCard(ship: (typeof SHIPS)[number]): HTMLButtonElement {
   button.setAttribute("aria-label", `${ship.name}, ${ship.role}`);
 
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "-35 -28 70 56");
+  svg.setAttribute("viewBox", "-45 -35 90 70");
   svg.setAttribute("aria-hidden", "true");
   const polygon = document.createElementNS("http://www.w3.org/2000/svg", "polygon");
   polygon.setAttribute("points", ship.shape.map((point) => `${point.x},${point.y}`).join(" "));
@@ -116,6 +117,7 @@ function updateSnapshot(snapshot: GameSnapshot, shop: readonly ShopItem[]): void
   waveValue.textContent = snapshot.state === "menu" ? "—" : String(snapshot.wave).padStart(2, "0");
   scoreValue.textContent = snapshot.score.toLocaleString();
   timeValue.textContent = formatTime(snapshot.elapsed);
+  quickActionValue.textContent = snapshot.quickAction;
 
   const repairCost = game?.repairCost ?? 0;
   repairButton.textContent = repairCost > 0 ? `Repair hull · ${repairCost} cr` : "Hull at full integrity";
@@ -123,7 +125,11 @@ function updateSnapshot(snapshot: GameSnapshot, shop: readonly ShopItem[]): void
   repairButton.classList.toggle("affordable", repairCost > 0 && snapshot.credits >= repairCost);
 
   const fingerprint = shop
-    .map((item) => `${item.definition.id}:${item.level}:${item.cost}:${item.canAfford}:${item.disabledReason}`)
+    .map(
+      (item) =>
+        `${item.definition.id}:${item.level}:${item.slot}:${item.cost}:${item.canAfford}:${item.disabledReason}:` +
+        `${item.health}:${item.repairCost}:${item.canRepair}:${item.ammo}:${item.reloadCost}:${item.canReload}`,
+    )
     .join("|");
   if (fingerprint !== shopFingerprint) {
     shopFingerprint = fingerprint;
@@ -146,10 +152,20 @@ function renderShop(items: readonly ShopItem[]): void {
     if (item.level !== null) {
       const owned = document.createElement("p");
       owned.className = "owned";
-      owned.textContent = `Installed · level ${item.level}`;
+      owned.textContent = `Installed · slot ${(item.slot ?? 0) + 1} · level ${item.level}`;
       details.append(owned);
+      const integrity = document.createElement("p");
+      integrity.textContent = `Integrity ${Math.ceil(item.health ?? 0)}/${item.maxHealth}`;
+      details.append(integrity);
+      if (item.maxAmmo !== null) {
+        const ammo = document.createElement("p");
+        ammo.textContent = `Ammo ${item.ammo}/${item.maxAmmo}`;
+        details.append(ammo);
+      }
     }
 
+    const actions = document.createElement("div");
+    actions.className = "weapon-actions";
     const action = document.createElement("button");
     action.type = "button";
     action.className = "weapon-action";
@@ -163,7 +179,28 @@ function renderShop(items: readonly ShopItem[]): void {
         game?.upgradeWeapon(id);
       }
     });
-    card.append(details, action);
+    actions.append(action);
+
+    if (item.level !== null) {
+      const repair = document.createElement("button");
+      repair.type = "button";
+      repair.className = "weapon-action";
+      repair.disabled = !item.canRepair;
+      repair.textContent = item.repairCost > 0 ? `Repair · ${item.repairCost} cr` : "Integrity full";
+      repair.addEventListener("click", () => game?.repairWeapon(item.definition.id));
+      actions.append(repair);
+
+      if (item.maxAmmo !== null) {
+        const reload = document.createElement("button");
+        reload.type = "button";
+        reload.className = "weapon-action";
+        reload.disabled = !item.canReload;
+        reload.textContent = item.reloadCost > 0 ? `Reload · ${item.reloadCost} cr` : "Ammo full";
+        reload.addEventListener("click", () => game?.reloadWeapon(item.definition.id));
+        actions.append(reload);
+      }
+    }
+    card.append(details, actions);
     weaponGrid.append(card);
   }
 }

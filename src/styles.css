@@ -369,6 +369,18 @@ kbd {
   color: var(--green);
 }
 
+.quick-help {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.65rem;
+  line-height: 1.6;
+}
+
+.quick-help strong {
+  color: var(--cyan);
+  text-transform: uppercase;
+}
+
 .weapon-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -413,6 +425,11 @@ kbd {
   font-size: 0.68rem;
 }
 
+.weapon-actions {
+  display: grid;
+  gap: 6px;
+}
+
 .controls {
   display: grid;
   grid-template-columns: 0.7fr 2fr;
@@ -422,7 +439,7 @@ kbd {
 
 .controls dl {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
   margin: 0;
 }

@@ -2,6 +2,7 @@ import { WORLD_HEIGHT, WORLD_WIDTH } from "./config";
 import { Vector } from "./vector";
 
 type PointerRole = "move" | "fire";
+export type QuickAction = "upgrade" | "repair" | "reload";
 
 interface ActivePointer {
   role: PointerRole;
@@ -27,12 +28,15 @@ export class InputController {
   private keyboardFiring = false;
   private enabled = false;
   private worldHeight = WORLD_HEIGHT;
+  public quickAction: QuickAction = "upgrade";
 
   public readonly aim = new Vector(WORLD_WIDTH * 0.75, WORLD_HEIGHT / 2);
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
     private readonly onPauseRequest: () => void,
+    private readonly onQuickAction: (action: QuickAction, slot: number) => void,
+    private readonly onQuickActionChange: () => void,
   ) {
     canvas.addEventListener("pointerdown", this.handlePointerDown);
     canvas.addEventListener("pointermove", this.handlePointerMove);
@@ -137,6 +141,23 @@ export class InputController {
       if (!event.repeat) {
         this.onPauseRequest();
       }
+      event.preventDefault();
+      return;
+    }
+    const actionByKey: Partial<Record<string, QuickAction>> = {
+      KeyZ: "upgrade",
+      KeyX: "repair",
+      KeyC: "reload",
+    };
+    const nextAction = actionByKey[event.code];
+    if (nextAction) {
+      this.quickAction = nextAction;
+      this.onQuickActionChange();
+      event.preventDefault();
+      return;
+    }
+    if (/^Digit[1-5]$/.test(event.code) && !event.repeat) {
+      this.onQuickAction(this.quickAction, Number(event.code.at(-1)) - 1);
       event.preventDefault();
       return;
     }
