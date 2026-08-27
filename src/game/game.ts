@@ -14,9 +14,32 @@ import {
   WORLD_HEIGHT,
   WORLD_WIDTH,
 } from "./config";
+import {
+  centipedeLength,
+  ENEMIES,
+  FORMATIONS,
+  formationTop,
+  type EnemyKind,
+  type FormationId,
+} from "./enemies";
 import { InputController, type QuickAction } from "./input";
-import { advanceCooldown, transformLocalPoint, usesFallbackCannon } from "./mechanics";
+import {
+  advanceCooldown,
+  rectangleCircleOverlap,
+  segmentCircleHitFraction,
+  segmentRectangleHitFraction,
+  transformLocalPoint,
+  usesFallbackCannon,
+} from "./mechanics";
 import { circlesOverlap, clamp, type Point, Vector } from "./vector";
+import {
+  pulseClipSize,
+  pulseReloadTime,
+  resolveLaserImpact,
+  shellAngles,
+  weaponCooldown,
+  weaponDamage,
+} from "./weapons";
 
 export type GameState = "menu" | "playing" | "paused" | "gameover";
 
@@ -45,6 +68,8 @@ export interface ShopItem {
   canRepair: boolean;
   ammo: number | null;
   maxAmmo: number | null;
+  clipAmmo: number | null;
+  clipSize: number | null;
   reloadCost: number;
   canReload: boolean;
 }
@@ -72,6 +97,8 @@ interface WeaponMount {
   phase: number;
   health: number;
   ammo: number | null;
+  burstShots: number;
+  clipAmmo: number | null;
   contactCooldown: number;
   hitFlash: number;
 }
@@ -86,9 +113,10 @@ interface Projectile {
   friendly: boolean;
   pierce: number;
   hitEnemies: Set<number>;
+  turnTarget: number | null;
+  beamLength: number;
+  penetration: number | null;
 }
-
-type EnemyKind = "scout" | "hunter" | "wall" | "spinner" | "boss";
 
 interface Enemy {
   id: number;
@@ -101,7 +129,7 @@ interface Enemy {
   reward: number;
   contactDamage: number;
   age: number;
-  seed: number;
+  pathOffset: number;
   shootCooldown: number;
   hitFlash: number;
 }
@@ -121,6 +149,19 @@ interface Star {
   size: number;
 }
 
+interface ScheduledFormation {
+  at: number;
+  id: FormationId;
+  preferredTop: number;
+}
+
+interface SpawnEnemyOptions {
+  y?: number;
+  xOffset?: number;
+  speed?: number;
+  pathOffset?: number;
+}
+
 const REPAIR_RATE = 1.5;
 const BASE_FIRE_COOLDOWN = 0.5;
 const HIGH_SCORE_KEY = "corvus-high-score";
@@ -133,6 +174,7 @@ export class Game {
   private readonly projectiles: Projectile[] = [];
   private readonly enemies: Enemy[] = [];
   private readonly particles: Particle[] = [];
+  private readonly scheduledFormations: ScheduledFormation[] = [];
   private player: Player | null = null;
   private state: GameState = "menu";
   private credits = 0;
@@ -193,8 +235,16 @@ export class Game {
     this.score = 0;
     this.elapsed = 0;
     this.wave = 1;
-    this.spawnCooldown = 0.6;
+    this.spawnCooldown = 7.5;
     this.lastBossWave = 0;
+    this.nextEnemyId = 1;
+    this.scheduledFormations.length = 0;
+    const openingTop = this.worldHeight / 2 - FORMATIONS.chevron.height / 2;
+    this.scheduledFormations.push(
+      { at: 0.5, id: "chevron", preferredTop: openingTop },
+      { at: 1.75, id: "chevron", preferredTop: openingTop },
+      { at: 3, id: "chevron", preferredTop: openingTop },
+    );
     this.screenFlash = 0;
     this.input.aim.x = 600;
     this.input.aim.y = this.worldHeight / 2;
@@ -270,6 +320,8 @@ export class Game {
       phase: player.weapons.length * 0.7,
       health: weaponMaxDurability(definition, 1),
       ammo: definition.ammoCapacity,
+      burstShots: 0,
+      clipAmmo: id === "pulse" ? pulseClipSize(1) : null,
       contactCooldown: 0,
       hitFlash: 0,
     });
@@ -291,6 +343,9 @@ export class Game {
     const oldMaximum = weaponMaxDurability(WEAPONS[id], mount.level);
     mount.level += 1;
     mount.health += weaponMaxDurability(WEAPONS[id], mount.level) - oldMaximum;
+    if (mount.id === "pulse" && mount.clipAmmo !== null) {
+      mount.clipAmmo += 3;
+    }
     this.render(performance.now() / 1000);
     this.emitSnapshot();
     return true;
@@ -377,6 +432,14 @@ export class Game {
     if (nextWave !== this.wave) {
       this.wave = nextWave;
       this.createBurst(new Vector(WORLD_WIDTH * 0.72, 52), "#3de3ff", 18);
+      if (this.wave % 5 !== 0) {
+        const id: FormationId = this.wave % 2 === 0 ? "barricade" : "chevron";
+        this.scheduledFormations.push({
+          at: this.elapsed + 0.7,
+          id,
+          preferredTop: 22 + Math.random() * (this.worldHeight - FORMATIONS[id].height - 44),
+        });
+      }
     }
 
     this.updateStars(delta);
@@ -428,13 +491,26 @@ export class Game {
     }
 
     for (const weapon of player.weapons) {
-      if (weapon.cooldown <= 0 && weapon.ammo !== 0) {
+      const hasAmmunition =
+        weapon.id === "laser"
+          ? weapon.burstShots > 0 || weapon.ammo !== 0
+          : weapon.id === "pulse"
+            ? (weapon.clipAmmo ?? 0) > 0 || weapon.ammo !== 0
+            : weapon.ammo !== 0;
+      if (weapon.cooldown <= 0 && hasAmmunition) {
         this.fireWeapon(weapon, player.angle);
       }
     }
   }
 
   private updateSpawning(delta: number): void {
+    while ((this.scheduledFormations[0]?.at ?? Number.POSITIVE_INFINITY) <= this.elapsed) {
+      const scheduled = this.scheduledFormations.shift();
+      if (scheduled) {
+        this.spawnFormation(scheduled.id, scheduled.preferredTop);
+      }
+    }
+
     this.spawnCooldown -= delta;
     const bossWave = this.wave >= 5 && this.wave % 5 === 0;
     if (bossWave && this.lastBossWave !== this.wave) {
@@ -451,50 +527,70 @@ export class Game {
     const interval = Math.max(0.34, 1.18 - this.wave * 0.055);
     this.spawnCooldown += interval * (0.78 + Math.random() * 0.5);
     const roll = Math.random();
-    let kind: EnemyKind = "scout";
-    if (this.wave >= 2 && roll > 0.67) {
-      kind = "hunter";
-    }
-    if (this.wave >= 3 && roll > 0.84) {
-      kind = "spinner";
-    }
     if (this.wave >= 4 && roll > 0.94) {
-      kind = "wall";
+      this.spawnEnemy("wall");
+    } else if (this.wave >= 3 && roll > 0.83) {
+      this.spawnCentipede();
+    } else if (this.wave >= 3 && roll > 0.65) {
+      this.spawnEnemy("eagle");
+    } else if (this.wave >= 2 && roll > 0.42) {
+      this.spawnEnemy("zipper");
+    } else {
+      this.spawnEnemy("scout");
     }
-    this.spawnEnemy(kind);
   }
 
-  private spawnEnemy(kind: EnemyKind): void {
+  private spawnFormation(id: FormationId, preferredTop: number): void {
+    const definition = FORMATIONS[id];
+    const top = formationTop(definition, preferredTop, this.worldHeight);
+    for (const placement of definition.placements) {
+      this.spawnEnemy(placement.kind, {
+        y: top + placement.y,
+        xOffset: placement.x,
+        speed: definition.speed,
+      });
+    }
+  }
+
+  private spawnCentipede(): void {
     const y = 55 + Math.random() * (this.worldHeight - 110);
+    const length = centipedeLength(Math.random);
+    for (let segment = 0; segment < length; segment += 1) {
+      this.spawnEnemy("curve", {
+        y,
+        xOffset: segment * 26,
+        speed: ENEMIES.curve.speed,
+        pathOffset: y,
+      });
+    }
+  }
+
+  private spawnEnemy(kind: EnemyKind, options: SpawnEnemyOptions = {}): void {
+    const definition = ENEMIES[kind];
+    const y = options.y ?? definition.radius + Math.random() * (this.worldHeight - definition.radius * 2);
     const healthScale = 1 + (this.wave - 1) * 0.12;
-    const defaults = {
-      scout: { radius: 14, health: 22, reward: 12, speed: 175, damage: 14, cooldown: 99 },
-      hunter: { radius: 19, health: 55, reward: 32, speed: 125, damage: 20, cooldown: 1.5 },
-      spinner: { radius: 17, health: 38, reward: 22, speed: 145, damage: 16, cooldown: 2.5 },
-      wall: { radius: 34, health: 175, reward: 85, speed: 72, damage: 28, cooldown: 1.15 },
-      boss: {
-        radius: 68,
-        health: 820 + this.wave * 105,
-        reward: 900 + this.wave * 40,
-        speed: 75,
-        damage: 36,
-        cooldown: 0.35,
-      },
-    }[kind];
-    const health = kind === "boss" ? defaults.health : defaults.health * healthScale;
+    const health = kind === "boss" ? definition.health + this.wave * 105 : definition.health * healthScale;
     this.enemies.push({
       id: this.nextEnemyId++,
       kind,
-      position: new Vector(WORLD_WIDTH + defaults.radius + 10, kind === "boss" ? this.worldHeight / 2 : y),
-      velocity: new Vector(-defaults.speed, 0),
-      radius: defaults.radius,
+      position: new Vector(
+        options.xOffset === undefined
+          ? WORLD_WIDTH + definition.radius + 10
+          : WORLD_WIDTH + 30 + options.xOffset,
+        kind === "boss" ? this.worldHeight / 2 : y,
+      ),
+      velocity: new Vector(-(options.speed ?? definition.speed), 0),
+      radius: definition.radius,
       health,
       maxHealth: health,
-      reward: Math.round(defaults.reward * (1 + this.wave * 0.035)),
-      contactDamage: defaults.damage,
+      reward: Math.round(
+        (kind === "boss" ? definition.reward + this.wave * 40 : definition.reward) *
+          (1 + this.wave * 0.035),
+      ),
+      contactDamage: definition.contactDamage,
       age: 0,
-      seed: Math.random() * Math.PI * 2,
-      shootCooldown: defaults.cooldown + Math.random(),
+      pathOffset: options.pathOffset ?? y,
+      shootCooldown: kind === "boss" ? 0.15 + Math.random() * 0.25 : Number.POSITIVE_INFINITY,
       hitFlash: 0,
     });
   }
@@ -509,34 +605,47 @@ export class Game {
       enemy.hitFlash = Math.max(0, enemy.hitFlash - delta * 5);
       enemy.shootCooldown -= delta;
 
-      if (enemy.kind === "scout") {
-        enemy.position.y += Math.sin(enemy.age * 4.2 + enemy.seed) * 45 * delta;
-      } else if (enemy.kind === "hunter") {
-        const desired = Vector.between(enemy.position, player.position).normalize().scale(150 + this.wave * 2);
-        enemy.velocity.add(desired.scale(delta * 0.85)).limit(185 + this.wave * 3);
-      } else if (enemy.kind === "spinner") {
-        enemy.position.y += Math.cos(enemy.age * 3.4 + enemy.seed) * 125 * delta;
+      if (enemy.kind === "eagle") {
+        const speed = enemy.velocity.length;
+        const desired = Vector.between(enemy.position, player.position).normalize().scale(speed);
+        enemy.velocity.add(desired.scale(delta * 1.15)).normalize().scale(speed);
+      } else if (enemy.kind === "zipper") {
+        enemy.velocity.scale(Math.pow(1.01, delta * 20)).limit(650);
       } else if (enemy.kind === "wall") {
-        enemy.position.y += Math.sign(player.position.y - enemy.position.y) * 42 * delta;
+        const speed = enemy.velocity.length;
+        const desired = new Vector(-1, Math.sign(player.position.y - enemy.position.y) * 0.7)
+          .normalize()
+          .scale(speed);
+        enemy.velocity.add(desired.scale(delta * 0.8)).normalize().scale(speed);
       } else if (enemy.kind === "boss") {
-        if (enemy.position.x < WORLD_WIDTH * 0.8) {
-          enemy.velocity.x = 0;
+        if (enemy.position.x < WORLD_WIDTH * 0.5) {
+          enemy.velocity.x = ENEMIES.boss.speed;
+        } else if (enemy.position.x > WORLD_WIDTH * 0.75) {
+          enemy.velocity.x = -ENEMIES.boss.speed;
         }
-        enemy.position.y = this.worldHeight / 2 + Math.sin(enemy.age * 0.85) * this.worldHeight * 0.29;
       }
 
       enemy.position.add(enemy.velocity.clone().scale(delta));
+      if (enemy.kind === "curve") {
+        const amplitude = (this.worldHeight - 30) / 2;
+        enemy.position.y =
+          15 +
+          amplitude +
+          Math.cos(((enemy.pathOffset + enemy.position.x) / WORLD_WIDTH) * Math.PI * 2) *
+            amplitude;
+      } else if (enemy.kind === "boss") {
+        enemy.position.y = this.worldHeight / 2;
+      }
       enemy.position.y = clamp(enemy.position.y, enemy.radius, this.worldHeight - enemy.radius);
 
-      if (enemy.shootCooldown <= 0 && enemy.kind !== "scout") {
+      if (enemy.shootCooldown <= 0 && enemy.kind === "boss") {
         this.enemyFire(enemy, player);
       }
 
       const blockingMount = player.weapons.find((mount) => {
         const definition = WEAPONS[mount.id];
-        return circlesOverlap(
-          enemy.position,
-          enemy.radius,
+        return this.enemyOverlapsCircle(
+          enemy,
           this.weaponPosition(mount),
           definition.collisionRadius,
         );
@@ -544,8 +653,14 @@ export class Game {
       if (blockingMount) {
         if (blockingMount.contactCooldown <= 0) {
           blockingMount.contactCooldown = 0.22;
-          this.damageWeapon(blockingMount, enemy.contactDamage * 0.48);
-          enemy.health -= 16;
+          if (blockingMount.id === "shell" || blockingMount.id === "shell2") {
+            const absorbed = Math.min(enemy.health, blockingMount.health);
+            this.damageWeapon(blockingMount, absorbed);
+            enemy.health -= absorbed;
+          } else {
+            this.damageWeapon(blockingMount, enemy.contactDamage * 0.48);
+            enemy.health -= 16;
+          }
         }
         enemy.velocity.x = Math.max(150, Math.abs(enemy.velocity.x) * 0.7);
         enemy.position.x += 4;
@@ -554,12 +669,7 @@ export class Game {
           continue;
         }
       } else if (
-        circlesOverlap(
-          enemy.position,
-          enemy.radius,
-          player.position,
-          this.playerCollisionRadius(player),
-        )
+        this.enemyOverlapsCircle(enemy, player.position, this.playerCollisionRadius(player))
       ) {
         this.damagePlayer(enemy.contactDamage);
         enemy.health -= 65;
@@ -577,25 +687,22 @@ export class Game {
   }
 
   private enemyFire(enemy: Enemy, player: Player): void {
-    const baseCooldown = enemy.kind === "boss" ? 0.48 : enemy.kind === "wall" ? 1.7 : 2.35;
-    enemy.shootCooldown += Math.max(0.28, baseCooldown - this.wave * 0.025);
+    enemy.shootCooldown += 0.18 + Math.random() * 0.22;
     const direction = Vector.between(enemy.position, player.position).normalize();
-    const count = enemy.kind === "boss" ? 3 : 1;
-    for (let shot = 0; shot < count; shot += 1) {
-      const spread = count === 1 ? 0 : (shot - 1) * 0.16;
-      const velocity = Vector.fromAngle(direction.angle + spread, enemy.kind === "boss" ? 390 : 315);
-      this.projectiles.push({
-        position: enemy.position.clone().add(Vector.fromAngle(direction.angle, enemy.radius * 0.8)),
-        velocity,
-        radius: enemy.kind === "boss" ? 5 : 4,
-        damage: enemy.kind === "boss" ? 13 : 9,
-        life: 5,
-        color: enemy.kind === "boss" ? "#ffbf66" : "#ff5c75",
-        friendly: false,
-        pierce: 0,
-        hitEnemies: new Set(),
-      });
-    }
+    this.projectiles.push({
+      position: enemy.position.clone().add(Vector.fromAngle(direction.angle, enemy.radius * 0.8)),
+      velocity: Vector.fromAngle(direction.angle, 390),
+      radius: 5,
+      damage: 13,
+      life: 5,
+      color: "#ffbf66",
+      friendly: false,
+      pierce: 0,
+      hitEnemies: new Set(),
+      turnTarget: null,
+      beamLength: 0,
+      penetration: null,
+    });
   }
 
   private updateProjectiles(player: Player, delta: number): void {
@@ -604,7 +711,18 @@ export class Game {
       if (!projectile) {
         continue;
       }
+
+      if (projectile.turnTarget !== null) {
+        const difference = Math.atan2(
+          Math.sin(projectile.turnTarget - projectile.velocity.angle),
+          Math.cos(projectile.turnTarget - projectile.velocity.angle),
+        );
+        const nextAngle = projectile.velocity.angle + difference * Math.min(1, delta * 2.8);
+        projectile.velocity = Vector.fromAngle(nextAngle, projectile.velocity.length);
+      }
+      const previousPosition = projectile.position.clone();
       projectile.position.add(projectile.velocity.clone().scale(delta));
+      const nextPosition = projectile.position.clone();
       projectile.life -= delta;
       let removeProjectile =
         projectile.life <= 0 ||
@@ -614,21 +732,53 @@ export class Game {
         projectile.position.y > this.worldHeight + 50;
 
       if (projectile.friendly) {
-        for (let enemyIndex = this.enemies.length - 1; enemyIndex >= 0; enemyIndex -= 1) {
-          const enemy = this.enemies[enemyIndex];
-          if (
-            !enemy ||
-            projectile.hitEnemies.has(enemy.id) ||
-            !circlesOverlap(projectile.position, projectile.radius, enemy.position, enemy.radius)
-          ) {
+        const collisions = this.enemies
+          .filter((enemy) => !projectile.hitEnemies.has(enemy.id))
+          .map((enemy) => ({
+            enemy,
+            fraction: this.enemyProjectileHitFraction(
+              enemy,
+              previousPosition,
+              nextPosition,
+              projectile.radius,
+            ),
+          }))
+          .filter((collision): collision is { enemy: Enemy; fraction: number } => collision.fraction !== null)
+          .sort((left, right) => left.fraction - right.fraction);
+
+        for (const collision of collisions) {
+          const { enemy, fraction } = collision;
+          const enemyIndex = this.enemies.indexOf(enemy);
+          if (enemyIndex < 0) {
             continue;
           }
           projectile.hitEnemies.add(enemy.id);
-          enemy.health -= projectile.damage;
+          const laserImpact =
+            projectile.penetration === null
+              ? null
+              : resolveLaserImpact(projectile.penetration, ENEMIES[enemy.kind].resistance);
+          enemy.health -= laserImpact?.reflects ? projectile.damage / 3 : projectile.damage;
           enemy.hitFlash = 1;
+          projectile.position.x = previousPosition.x + (nextPosition.x - previousPosition.x) * fraction;
+          projectile.position.y = previousPosition.y + (nextPosition.y - previousPosition.y) * fraction;
           this.createBurst(projectile.position, projectile.color, 2);
           if (enemy.health <= 0) {
             this.destroyEnemy(enemyIndex, enemy);
+          }
+          if (laserImpact?.reflects) {
+            projectile.penetration = laserImpact.remainingPenetration;
+            projectile.friendly = false;
+            projectile.velocity.x *= -1;
+            projectile.turnTarget = null;
+            break;
+          }
+          if (laserImpact) {
+            projectile.penetration = laserImpact.remainingPenetration;
+            if (projectile.penetration < 1) {
+              removeProjectile = true;
+              break;
+            }
+            continue;
           }
           if (projectile.pierce <= 0) {
             removeProjectile = true;
@@ -636,28 +786,38 @@ export class Game {
           }
           projectile.pierce -= 1;
         }
+        if (!removeProjectile && projectile.friendly) {
+          projectile.position = nextPosition;
+        }
       } else {
-        const blockingMount = player.weapons.find((mount) => {
+        let blockingMount: WeaponMount | null = null;
+        let closestFraction = Number.POSITIVE_INFINITY;
+        for (const mount of player.weapons) {
           const definition = WEAPONS[mount.id];
-          return circlesOverlap(
-            projectile.position,
-            projectile.radius,
+          const fraction = segmentCircleHitFraction(
+            previousPosition,
+            nextPosition,
             this.weaponPosition(mount),
-            definition.collisionRadius,
+            projectile.radius + definition.collisionRadius,
           );
-        });
-        if (blockingMount) {
-          this.damageWeapon(blockingMount, projectile.damage);
-          removeProjectile = true;
-        } else if (
-          circlesOverlap(
-            projectile.position,
-            projectile.radius,
-            player.position,
-            this.playerCollisionRadius(player),
-          )
-        ) {
+          if (fraction !== null && fraction < closestFraction) {
+            closestFraction = fraction;
+            blockingMount = mount;
+          }
+        }
+        const hullFraction = segmentCircleHitFraction(
+          previousPosition,
+          nextPosition,
+          player.position,
+          projectile.radius + this.playerCollisionRadius(player),
+        );
+        const hitHull = hullFraction !== null && hullFraction < closestFraction;
+
+        if (hitHull) {
           this.damagePlayer(projectile.damage);
+          removeProjectile = true;
+        } else if (blockingMount) {
+          this.damageWeapon(blockingMount, projectile.damage);
           removeProjectile = true;
         }
       }
@@ -685,10 +845,18 @@ export class Game {
 
   private fireWeapon(mount: WeaponMount, playerAngle: number): void {
     const definition = WEAPONS[mount.id];
-    const cooldown = definition.cooldown / (1 + (mount.level - 1) * 0.12);
-    const damage = definition.damage * (1 + (mount.level - 1) * 0.28);
+    const cooldown = weaponCooldown(definition, mount.level);
+    const damage = weaponDamage(definition, mount.level);
     const origin = this.weaponMuzzlePosition(mount);
-    const fire = (angle: number, offset = 0, radius = 3.5, pierce = 0): void => {
+    const fire = (
+      angle: number,
+      offset = 0,
+      radius = 3.5,
+      pierce = 0,
+      turnTarget: number | null = null,
+      beamLength = 0,
+      penetration: number | null = null,
+    ): void => {
       this.createPlayerProjectile(
         angle,
         offset,
@@ -698,41 +866,76 @@ export class Game {
         radius,
         pierce,
         origin,
+        turnTarget,
+        beamLength,
+        penetration,
       );
     };
-    mount.cooldown += cooldown;
-    mount.phase += 0.43;
-    if (mount.ammo !== null) {
-      mount.ammo = Math.max(0, mount.ammo - 1);
-    }
 
     switch (mount.id) {
       case "rapid":
         fire(playerAngle - 0.018);
+        mount.cooldown += cooldown;
+        mount.phase += 0.43;
         break;
       case "rapid2":
         fire(playerAngle + 0.018);
+        mount.cooldown += cooldown;
+        mount.phase += 0.43;
         break;
       case "fan":
         fire(playerAngle + Math.sin(mount.phase) * 0.68);
+        mount.cooldown += cooldown;
+        mount.phase += 0.43;
         break;
-      case "pulse":
+      case "pulse": {
+        if ((mount.clipAmmo ?? 0) <= 0) {
+          if ((mount.ammo ?? 0) > 0) {
+            mount.ammo = Math.max(0, (mount.ammo ?? 0) - 1);
+            mount.clipAmmo = pulseClipSize(mount.level);
+            mount.cooldown += pulseReloadTime(mount.level);
+          }
+          break;
+        }
+        mount.clipAmmo = Math.max(0, (mount.clipAmmo ?? 0) - 1);
         fire(playerAngle, 0, 8, 1);
+        mount.cooldown += cooldown;
         break;
-      case "spray":
-        fire(playerAngle + Math.sin(mount.phase * 0.72) * 1.05);
+      }
+      case "spray": {
+        const barrelCount = 5 + mount.level * 2;
+        const barrel = Math.floor(mount.phase) % barrelCount;
+        const arc = barrelCount === 1 ? 0 : barrel / (barrelCount - 1) - 0.5;
+        fire(playerAngle + arc * (140 * Math.PI) / 180, 0, 3.5, 0, playerAngle);
+        mount.phase += 1;
+        mount.cooldown += cooldown;
         break;
-      case "laser":
-        fire(playerAngle, 0, 2.5, 1 + Math.floor(mount.level / 2));
+      }
+      case "laser": {
+        if (mount.burstShots <= 0) {
+          if ((mount.ammo ?? 0) <= 0) {
+            break;
+          }
+          mount.ammo = Math.max(0, (mount.ammo ?? 0) - 1);
+          mount.burstShots = 30;
+        }
+        mount.burstShots -= 1;
+        fire(playerAngle, 0, 2.5, 0, null, 115, 2 + (mount.level - 1) * 22);
+        mount.cooldown += cooldown;
         break;
+      }
       case "orbit":
         fire(playerAngle + Math.sin(mount.phase * 1.7) * 0.3, Math.sin(mount.phase) * 4);
+        mount.cooldown += cooldown;
+        mount.phase += 0.43;
         break;
       case "shell":
       case "shell2": {
-        const side = mount.id === "shell" ? -1 : 1;
-        fire(playerAngle - 0.035 * side, -4, 5);
-        fire(playerAngle + 0.035 * side, 4, 5);
+        for (const angle of shellAngles(mount.id, mount.level)) {
+          fire(playerAngle + angle, 0, 5);
+        }
+        mount.cooldown += cooldown;
+        mount.phase += 0.43;
         break;
       }
     }
@@ -747,6 +950,9 @@ export class Game {
     radius = 3.5,
     pierce = 0,
     origin?: Point,
+    turnTarget: number | null = null,
+    beamLength = 0,
+    penetration: number | null = null,
   ): void {
     const player = this.player;
     if (!player) {
@@ -765,6 +971,9 @@ export class Game {
       friendly: true,
       pierce,
       hitEnemies: new Set(),
+      turnTarget,
+      beamLength,
+      penetration,
     });
   }
 
@@ -804,7 +1013,11 @@ export class Game {
     this.enemies.splice(index, 1);
     this.score += Math.round(enemy.maxHealth);
     this.credits += enemy.reward;
-    this.createBurst(enemy.position, enemy.kind === "boss" ? "#ffc766" : "#ff5c75", enemy.kind === "boss" ? 55 : 14);
+    this.createBurst(
+      enemy.position,
+      enemy.kind === "boss" ? "#ffc766" : "#ff5c75",
+      enemy.kind === "boss" ? 55 : 14,
+    );
   }
 
   private damagePlayer(damage: number): void {
@@ -867,6 +1080,36 @@ export class Game {
     return clamp(visualRadius * 0.5, 10, 18);
   }
 
+  private enemyOverlapsCircle(enemy: Enemy, center: Point, radius: number): boolean {
+    if (enemy.kind === "wall") {
+      return rectangleCircleOverlap(enemy.position, 4, 60, center, radius);
+    }
+    return circlesOverlap(enemy.position, enemy.radius, center, radius);
+  }
+
+  private enemyProjectileHitFraction(
+    enemy: Enemy,
+    start: Point,
+    end: Point,
+    projectileRadius: number,
+  ): number | null {
+    if (enemy.kind === "wall") {
+      return segmentRectangleHitFraction(
+        start,
+        end,
+        enemy.position,
+        4 + projectileRadius,
+        60 + projectileRadius,
+      );
+    }
+    return segmentCircleHitFraction(
+      start,
+      end,
+      enemy.position,
+      projectileRadius + enemy.radius,
+    );
+  }
+
   private createBurst(position: Point, color: string, count: number): void {
     for (let index = 0; index < count; index += 1) {
       const life = 0.25 + Math.random() * 0.6;
@@ -895,12 +1138,22 @@ export class Game {
     context.globalAlpha = 1;
 
     for (const projectile of this.projectiles) {
-      context.beginPath();
-      context.arc(projectile.position.x, projectile.position.y, projectile.radius, 0, Math.PI * 2);
-      context.fillStyle = projectile.color;
       context.shadowColor = projectile.color;
       context.shadowBlur = projectile.friendly ? 12 : 8;
-      context.fill();
+      if (projectile.beamLength > 0) {
+        const trail = projectile.velocity.clone().normalize().scale(projectile.beamLength);
+        context.beginPath();
+        context.moveTo(projectile.position.x, projectile.position.y);
+        context.lineTo(projectile.position.x - trail.x, projectile.position.y - trail.y);
+        context.strokeStyle = projectile.color;
+        context.lineWidth = projectile.radius;
+        context.stroke();
+      } else {
+        context.beginPath();
+        context.arc(projectile.position.x, projectile.position.y, projectile.radius, 0, Math.PI * 2);
+        context.fillStyle = projectile.color;
+        context.fill();
+      }
     }
     context.shadowBlur = 0;
 
@@ -1016,6 +1269,24 @@ export class Game {
     this.tracePolygon(definition.shape);
     context.fill();
     context.stroke();
+    if (mount.id === "spray") {
+      const barrelCount = 5 + mount.level * 2;
+      for (let barrel = 0; barrel < barrelCount; barrel += 1) {
+        const arc = barrelCount === 1 ? 0 : barrel / (barrelCount - 1) - 0.5;
+        const angle = arc * (140 * Math.PI) / 180;
+        context.beginPath();
+        context.moveTo(-2, 0);
+        context.lineTo(Math.cos(angle) * 15, Math.sin(angle) * 15);
+        context.stroke();
+      }
+    } else if (mount.id === "shell" || mount.id === "shell2") {
+      for (const angle of shellAngles(mount.id, mount.level)) {
+        context.beginPath();
+        context.moveTo(2, 0);
+        context.lineTo(Math.cos(angle) * 15, Math.sin(angle) * 15);
+        context.stroke();
+      }
+    }
     context.restore();
 
     if (damaged || mount.hitFlash > 0) {
@@ -1030,18 +1301,17 @@ export class Game {
 
   private renderEnemy(enemy: Enemy): void {
     const context = this.context;
-    const color = enemy.hitFlash > 0 ? "#fff4f6" : enemy.kind === "boss" ? "#ffc766" : "#ff5c75";
+    const color = enemy.hitFlash > 0 ? "#fff4f6" : ENEMIES[enemy.kind].color;
     context.save();
     context.translate(enemy.position.x, enemy.position.y);
-    context.rotate(enemy.kind === "spinner" ? enemy.age * 3 : Math.PI);
+    context.rotate(enemy.kind === "eagle" ? enemy.velocity.angle : Math.PI);
     context.strokeStyle = color;
     context.fillStyle = enemy.kind === "boss" ? "rgba(255, 199, 102, 0.06)" : "rgba(255, 92, 117, 0.055)";
     context.shadowColor = color;
     context.shadowBlur = enemy.kind === "boss" ? 20 : 9;
     context.lineWidth = enemy.kind === "boss" ? 2.5 : 1.5;
 
-    const shape = this.enemyShape(enemy);
-    this.tracePolygon(shape);
+    this.tracePolygon(ENEMIES[enemy.kind].shape);
     context.fill();
     context.stroke();
     if (enemy.kind === "boss") {
@@ -1059,54 +1329,6 @@ export class Game {
       context.fillRect(WORLD_WIDTH / 2 - width / 2, 24, width, 5);
       context.fillStyle = "#ffc766";
       context.fillRect(WORLD_WIDTH / 2 - width / 2, 24, width * ratio, 5);
-    }
-  }
-
-  private enemyShape(enemy: Enemy): readonly Point[] {
-    const radius = enemy.radius;
-    switch (enemy.kind) {
-      case "scout":
-        return [
-          { x: radius, y: 0 },
-          { x: -radius, y: radius * 0.72 },
-          { x: -radius * 0.55, y: 0 },
-          { x: -radius, y: -radius * 0.72 },
-        ];
-      case "hunter":
-        return [
-          { x: radius, y: 0 },
-          { x: 0, y: radius },
-          { x: -radius, y: radius * 0.45 },
-          { x: -radius * 0.6, y: 0 },
-          { x: -radius, y: -radius * 0.45 },
-          { x: 0, y: -radius },
-        ];
-      case "spinner":
-        return [
-          { x: radius, y: 0 },
-          { x: radius * 0.28, y: radius * 0.28 },
-          { x: 0, y: radius },
-          { x: -radius * 0.28, y: radius * 0.28 },
-          { x: -radius, y: 0 },
-          { x: -radius * 0.28, y: -radius * 0.28 },
-          { x: 0, y: -radius },
-          { x: radius * 0.28, y: -radius * 0.28 },
-        ];
-      case "wall":
-        return [
-          { x: radius * 0.75, y: radius },
-          { x: -radius * 0.75, y: radius },
-          { x: -radius, y: 0 },
-          { x: -radius * 0.75, y: -radius },
-          { x: radius * 0.75, y: -radius },
-          { x: radius, y: 0 },
-        ];
-      case "boss":
-        return Array.from({ length: 10 }, (_, index) => {
-          const angle = (index / 10) * Math.PI * 2;
-          const pointRadius = index % 2 === 0 ? radius : radius * 0.66;
-          return { x: Math.cos(angle) * pointRadius, y: Math.sin(angle) * pointRadius };
-        });
     }
   }
 
@@ -1180,6 +1402,8 @@ export class Game {
         canRepair: repairCost > 0 && this.credits >= repairCost,
         ammo: mount?.ammo ?? null,
         maxAmmo: mount ? definition.ammoCapacity : null,
+        clipAmmo: mount?.clipAmmo ?? null,
+        clipSize: mount?.id === "pulse" ? pulseClipSize(mount.level) : null,
         reloadCost,
         canReload: reloadCost > 0 && this.credits >= reloadCost,
       };

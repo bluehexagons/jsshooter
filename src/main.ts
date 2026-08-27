@@ -128,7 +128,8 @@ function updateSnapshot(snapshot: GameSnapshot, shop: readonly ShopItem[]): void
     .map(
       (item) =>
         `${item.definition.id}:${item.level}:${item.slot}:${item.cost}:${item.canAfford}:${item.disabledReason}:` +
-        `${item.health}:${item.repairCost}:${item.canRepair}:${item.ammo}:${item.reloadCost}:${item.canReload}`,
+        `${item.health}:${item.repairCost}:${item.canRepair}:${item.ammo}:${item.clipAmmo}:` +
+        `${item.reloadCost}:${item.canReload}`,
     )
     .join("|");
   if (fingerprint !== shopFingerprint) {
@@ -159,7 +160,10 @@ function renderShop(items: readonly ShopItem[]): void {
       details.append(integrity);
       if (item.maxAmmo !== null) {
         const ammo = document.createElement("p");
-        ammo.textContent = `Ammo ${item.ammo}/${item.maxAmmo}`;
+        ammo.textContent =
+          item.clipAmmo === null
+            ? `Cells ${item.ammo}/${item.maxAmmo}`
+            : `Magazine ${item.clipAmmo}/${item.clipSize} · reserves ${item.ammo}/${item.maxAmmo}`;
         details.append(ammo);
       }
     }
