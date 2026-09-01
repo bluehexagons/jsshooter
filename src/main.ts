@@ -128,7 +128,8 @@ function updateSnapshot(snapshot: GameSnapshot, shop: readonly ShopItem[]): void
   waveValue.textContent = snapshot.state === "menu" ? "—" : String(snapshot.wave).padStart(2, "0");
   scoreValue.textContent = snapshot.score.toLocaleString();
   timeValue.textContent = formatTime(snapshot.elapsed);
-  quickActionValue.textContent = snapshot.quickAction;
+  quickActionValue.textContent =
+    snapshot.quickAction === "upgrade" ? "buy / upgrade" : snapshot.quickAction;
 
   const repairCost = game?.repairCost ?? 0;
   repairButton.textContent = repairCost > 0 ? `Repair hull · ${repairCost} cr` : "Hull at full integrity";
@@ -138,7 +139,7 @@ function updateSnapshot(snapshot: GameSnapshot, shop: readonly ShopItem[]): void
   const fingerprint = shop
     .map(
       (item) =>
-        `${item.definition.id}:${item.level}:${item.slot}:${item.cost}:${item.canAfford}:${item.disabledReason}:` +
+        `${item.definition.id}:${item.level}:${item.hotkeySlot}:${item.cost}:${item.canAfford}:${item.disabledReason}:` +
         `${item.health}:${item.repairCost}:${item.canRepair}:${item.ammo}:${item.clipAmmo}:` +
         `${item.reloadCost}:${item.canReload}`,
     )
@@ -159,12 +160,15 @@ function renderShop(items: readonly ShopItem[]): void {
     title.textContent = item.definition.name;
     const copy = document.createElement("p");
     copy.textContent = item.definition.description;
-    details.append(title, copy);
+    const shortcut = document.createElement("p");
+    shortcut.className = "weapon-shortcut";
+    shortcut.textContent = `Z + ${item.hotkeySlot + 1} · ${item.level === null ? "buy" : "upgrade"}`;
+    details.append(title, copy, shortcut);
 
     if (item.level !== null) {
       const owned = document.createElement("p");
       owned.className = "owned";
-      owned.textContent = `Installed · slot ${(item.slot ?? 0) + 1} · level ${item.level}`;
+      owned.textContent = `Installed · level ${item.level}`;
       details.append(owned);
       const integrity = document.createElement("p");
       integrity.textContent = `Integrity ${Math.ceil(item.health ?? 0)}/${item.maxHealth}`;

@@ -4,6 +4,8 @@ Corvus is a wireframe side-scrolling shooter that began as a browser experiment 
 
 Weapons are physical mounts around the ship: they fire from their own muzzles, intercept enemy fire and collisions before the hull, take damage, and can be repaired or destroyed.
 
+Each frame has a role-focused armory. The modern additions include a penetrating Rail Spike for aligned targets and an impact-detonated Flak Charge for clustered formations.
+
 Play it at [bluehexagons.github.io/jsshooter](https://bluehexagons.github.io/jsshooter/).
 
 ## Controls
@@ -12,7 +14,7 @@ Play it at [bluehexagons.github.io/jsshooter](https://bluehexagons.github.io/jss
 - Aim with the pointer.
 - Hold the primary mouse button or Space to fire.
 - Press P or Escape to pause.
-- Use Z/X/C to select upgrade, repair, or reload, then press 1–5 to apply it to a mounted weapon.
+- Use Z/X/C to select upgrade, repair, or reload, then press 1–5 for that armory entry. Upgrade buys weapons that are not installed yet.
 - On a touch screen, drag on the left side of the playfield to move and touch the right side to aim and fire.
 
 ## Development

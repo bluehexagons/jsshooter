@@ -22,6 +22,8 @@ export type WeaponId =
   | "spray"
   | "laser"
   | "orbit"
+  | "rail"
+  | "flak"
   | "shell"
   | "shell2";
 
@@ -81,13 +83,13 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: 3, y: 11 }, { x: 8, y: 0 }],
       [{ x: 3, y: -11 }, { x: 8, y: 0 }],
     ],
-    armory: ["rapid", "rapid2", "fan", "laser", "pulse"],
+    armory: ["rapid", "fan", "pulse", "rail", "flak"],
     mounts: {
       rapid: { x: 8, y: -30 },
-      rapid2: { x: 8, y: 30 },
       fan: { x: -31, y: 15 },
-      laser: { x: -28, y: -23 },
       pulse: { x: 38, y: 0 },
+      rail: { x: -28, y: -23 },
+      flak: { x: 8, y: 30 },
     },
   },
   {
@@ -116,12 +118,13 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: -8, y: 11 }, { x: 6, y: 9 }],
       [{ x: -8, y: -11 }, { x: 6, y: -9 }],
     ],
-    armory: ["shell", "shell2", "spray", "orbit"],
+    armory: ["fan", "spray", "orbit", "flak", "shell2"],
     mounts: {
-      shell: { x: 5, y: -27 },
+      fan: { x: 5, y: -27 },
       shell2: { x: 5, y: 27 },
       spray: { x: -27, y: 0 },
       orbit: { x: 44, y: 0 },
+      flak: { x: -24, y: 36 },
     },
   },
   {
@@ -152,10 +155,11 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: 22, y: 15 }, { x: 31, y: 0 }],
       [{ x: 22, y: -15 }, { x: 31, y: 0 }],
     ],
-    armory: ["laser", "shell"],
+    armory: ["shell", "shell2", "flak"],
     mounts: {
-      laser: { x: 4, y: -35 },
-      shell: { x: 8, y: 34 },
+      shell: { x: 6, y: -34 },
+      shell2: { x: 8, y: 34 },
+      flak: { x: -30, y: 0 },
     },
   },
   {
@@ -181,10 +185,11 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: 3, y: 3 }, { x: 13, y: 0 }],
       [{ x: 3, y: -3 }, { x: 13, y: 0 }],
     ],
-    armory: ["laser", "rapid"],
+    armory: ["laser", "rapid", "rail"],
     mounts: {
-      laser: { x: 8, y: -19 },
-      rapid: { x: 8, y: 17 },
+      laser: { x: 8, y: -23 },
+      rapid: { x: 8, y: 23 },
+      rail: { x: 45, y: 0 },
     },
   },
   {
@@ -210,10 +215,12 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: -10, y: 0 }, { x: 4, y: 8 }],
       [{ x: -10, y: 0 }, { x: 4, y: -8 }],
     ],
-    armory: ["shell", "rapid"],
+    armory: ["rapid", "rapid2", "orbit", "fan"],
     mounts: {
-      shell: { x: 0, y: -26 },
-      rapid: { x: 0, y: 24 },
+      rapid: { x: 0, y: -27 },
+      rapid2: { x: 0, y: 27 },
+      orbit: { x: 32, y: 0 },
+      fan: { x: -27, y: 0 },
     },
   },
   {
@@ -240,9 +247,11 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: -10, y: 0 }, { x: 0, y: -9 }],
       [{ x: 0, y: -9 }, { x: 19, y: 0 }],
     ],
-    armory: ["laser"],
+    armory: ["laser", "rail", "flak"],
     mounts: {
-      laser: { x: 25, y: 0 },
+      laser: { x: 30, y: 0 },
+      rail: { x: -18, y: -28 },
+      flak: { x: -18, y: 28 },
     },
   },
   {
@@ -268,9 +277,11 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: -7, y: 11 }, { x: 8, y: 0 }],
       [{ x: -7, y: -11 }, { x: 8, y: 0 }],
     ],
-    armory: ["shell"],
+    armory: ["shell", "shell2", "pulse"],
     mounts: {
-      shell: { x: 2, y: -26 },
+      shell: { x: 2, y: -28 },
+      shell2: { x: 2, y: 28 },
+      pulse: { x: 38, y: 0 },
     },
   },
 ] as const;
@@ -475,6 +486,64 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
       [{ x: 0, y: -12 }, { x: 0, y: 12 }],
     ],
     muzzleOffset: { x: 14, y: 0 },
+    ammoCapacity: null,
+    reloadPrice: 0,
+  },
+  rail: {
+    id: "rail",
+    name: "Rail spike",
+    description: "Launches a slow-cycling kinetic spike through several aligned targets.",
+    price: 35,
+    cooldown: 0.78,
+    damage: 48,
+    projectileSpeed: 1500,
+    color: "#70f0b1",
+    durability: 46,
+    collisionRadius: 15,
+    shape: [
+      { x: 22, y: 0 },
+      { x: 8, y: 5 },
+      { x: -10, y: 5 },
+      { x: -16, y: 2 },
+      { x: -16, y: -2 },
+      { x: -10, y: -5 },
+      { x: 8, y: -5 },
+    ],
+    details: [
+      [{ x: -14, y: 0 }, { x: 21, y: 0 }],
+      [{ x: -8, y: -4 }, { x: 7, y: -2 }],
+      [{ x: -8, y: 4 }, { x: 7, y: 2 }],
+    ],
+    muzzleOffset: { x: 22, y: 0 },
+    ammoCapacity: null,
+    reloadPrice: 0,
+  },
+  flak: {
+    id: "flak",
+    name: "Flak charge",
+    description: "Detonates on impact and damages enemies clustered around the target.",
+    price: 30,
+    cooldown: 0.72,
+    damage: 26,
+    projectileSpeed: 590,
+    color: "#ffb66e",
+    durability: 55,
+    collisionRadius: 16,
+    shape: [
+      { x: 17, y: 0 },
+      { x: 8, y: 9 },
+      { x: -3, y: 13 },
+      { x: -14, y: 7 },
+      { x: -14, y: -7 },
+      { x: -3, y: -13 },
+      { x: 8, y: -9 },
+    ],
+    details: [
+      [{ x: -12, y: 0 }, { x: 15, y: 0 }],
+      [{ x: -5, y: -10 }, { x: 4, y: 0 }],
+      [{ x: -5, y: 10 }, { x: 4, y: 0 }],
+    ],
+    muzzleOffset: { x: 17, y: 0 },
     ammoCapacity: null,
     reloadPrice: 0,
   },

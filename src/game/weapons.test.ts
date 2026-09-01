@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { WEAPONS } from "./config";
 import {
+  flakBlastRadius,
+  flakSplashDamage,
   pulseClipSize,
   pulseReloadTime,
+  railPierce,
   resolveLaserImpact,
   shellAngles,
   weaponCooldown,
@@ -30,5 +33,18 @@ describe("legacy weapon upgrades", () => {
   it("reflects an underpowered laser from the armored wall", () => {
     expect(resolveLaserImpact(24, 50).reflects).toBe(true);
     expect(resolveLaserImpact(46, 50).reflects).toBe(false);
+  });
+
+  it("gives the rail spike additional penetration at upgrade milestones", () => {
+    expect(railPierce(1)).toBe(2);
+    expect(railPierce(4)).toBe(3);
+    expect(railPierce(10)).toBe(5);
+  });
+
+  it("grows flak reach while applying distance falloff", () => {
+    expect(flakBlastRadius(2)).toBeGreaterThan(flakBlastRadius(1));
+    expect(flakSplashDamage(30, 60, 0)).toBe(30);
+    expect(flakSplashDamage(30, 60, 45)).toBeLessThan(20);
+    expect(flakSplashDamage(30, 60, 60)).toBe(0);
   });
 });

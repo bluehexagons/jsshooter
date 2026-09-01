@@ -418,6 +418,12 @@ kbd {
   color: var(--green);
 }
 
+.weapon-card .weapon-shortcut {
+  margin-top: 6px;
+  color: var(--cyan);
+  text-transform: uppercase;
+}
+
 .weapon-action {
   min-width: 84px;
   padding: 8px 10px;

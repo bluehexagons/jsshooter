@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   advanceCooldown,
+  reflectVector,
   rectangleCircleOverlap,
+  segmentCircleHit,
   segmentCircleHitFraction,
+  segmentRectangleHit,
   segmentRectangleHitFraction,
   transformLocalPoint,
   usesFallbackCannon,
@@ -50,5 +53,48 @@ describe("swept projectile collisions", () => {
   it("checks circular mounts against the wall slab", () => {
     expect(rectangleCircleOverlap({ x: 50, y: 50 }, 4, 60, { x: 58, y: 50 }, 5)).toBe(true);
     expect(rectangleCircleOverlap({ x: 50, y: 50 }, 4, 60, { x: 65, y: 50 }, 5)).toBe(false);
+  });
+
+  it("reports the surface normal at a circular impact", () => {
+    const hit = segmentCircleHit({ x: 0, y: 2 }, { x: 10, y: 2 }, { x: 5, y: 0 }, 3);
+    expect(hit?.normal.x).toBeLessThan(0);
+    expect(hit?.normal.y).toBeGreaterThan(0);
+    expect(hit?.normal.length).toBeCloseTo(1);
+  });
+
+  it("distinguishes the top and side faces of a wall", () => {
+    const topHit = segmentRectangleHit(
+      { x: 0, y: -10 },
+      { x: 0, y: 10 },
+      { x: 0, y: 0 },
+      5,
+      5,
+    );
+    const sideHit = segmentRectangleHit(
+      { x: 10, y: 0 },
+      { x: -10, y: 0 },
+      { x: 0, y: 0 },
+      5,
+      5,
+    );
+    expect(topHit?.normal).toMatchObject({ x: 0, y: -1 });
+    expect(sideHit?.normal).toMatchObject({ x: 1, y: 0 });
+  });
+
+  it("combines both face normals at an exact rectangle corner", () => {
+    const hit = segmentRectangleHit(
+      { x: 10, y: 10 },
+      { x: 0, y: 0 },
+      { x: 0, y: 0 },
+      5,
+      5,
+    );
+    expect(hit?.normal.x).toBeCloseTo(Math.SQRT1_2);
+    expect(hit?.normal.y).toBeCloseTo(Math.SQRT1_2);
+  });
+
+  it("reflects velocity across the supplied collision normal", () => {
+    expect(reflectVector({ x: 3, y: 4 }, { x: -1, y: 0 })).toMatchObject({ x: -3, y: 4 });
+    expect(reflectVector({ x: 3, y: 4 }, { x: 0, y: -1 })).toMatchObject({ x: 3, y: -4 });
   });
 });

@@ -23,12 +23,16 @@ import {
   type FormationId,
 } from "./enemies";
 import { InputController, type QuickAction } from "./input";
+import { resolveArmoryAction } from "./loadout";
 import {
   advanceCooldown,
+  reflectVector,
   rectangleCircleOverlap,
+  segmentCircleHit,
   segmentCircleHitFraction,
-  segmentRectangleHitFraction,
+  segmentRectangleHit,
   transformLocalPoint,
+  type SegmentHit,
   usesFallbackCannon,
 } from "./mechanics";
 import {
@@ -43,8 +47,11 @@ import {
 } from "./spawning";
 import { circlesOverlap, clamp, type Point, Vector } from "./vector";
 import {
+  flakBlastRadius,
+  flakSplashDamage,
   pulseClipSize,
   pulseReloadTime,
+  railPierce,
   resolveLaserImpact,
   shellAngles,
   weaponCooldown,
@@ -68,7 +75,7 @@ export interface GameSnapshot {
 export interface ShopItem {
   definition: WeaponDefinition;
   level: number | null;
-  slot: number | null;
+  hotkeySlot: number;
   cost: number;
   canAfford: boolean;
   disabledReason: string | null;
@@ -126,6 +133,7 @@ interface Projectile {
   turnTarget: number | null;
   beamLength: number;
   penetration: number | null;
+  blastRadius: number;
 }
 
 interface Enemy {
@@ -754,6 +762,7 @@ export class Game {
       turnTarget: null,
       beamLength: 0,
       penetration: null,
+      blastRadius: 0,
     });
   }
 
@@ -792,18 +801,21 @@ export class Game {
           .filter((enemy) => !projectile.hitEnemies.has(enemy.id))
           .map((enemy) => ({
             enemy,
-            fraction: this.enemyProjectileHitFraction(
+            impact: this.enemyProjectileImpact(
               enemy,
               previousPosition,
               nextPosition,
               projectile.radius,
             ),
           }))
-          .filter((collision): collision is { enemy: Enemy; fraction: number } => collision.fraction !== null)
-          .sort((left, right) => left.fraction - right.fraction);
+          .filter(
+            (collision): collision is { enemy: Enemy; impact: SegmentHit } =>
+              collision.impact !== null,
+          )
+          .sort((left, right) => left.impact.fraction - right.impact.fraction);
 
         for (const collision of collisions) {
-          const { enemy, fraction } = collision;
+          const { enemy, impact } = collision;
           const enemyIndex = this.enemies.indexOf(enemy);
           if (enemyIndex < 0) {
             continue;
@@ -815,8 +827,10 @@ export class Game {
               : resolveLaserImpact(projectile.penetration, ENEMIES[enemy.kind].resistance);
           enemy.health -= laserImpact?.reflects ? projectile.damage / 3 : projectile.damage;
           enemy.hitFlash = 1;
-          projectile.position.x = previousPosition.x + (nextPosition.x - previousPosition.x) * fraction;
-          projectile.position.y = previousPosition.y + (nextPosition.y - previousPosition.y) * fraction;
+          projectile.position.x =
+            previousPosition.x + (nextPosition.x - previousPosition.x) * impact.fraction;
+          projectile.position.y =
+            previousPosition.y + (nextPosition.y - previousPosition.y) * impact.fraction;
           this.createBurst(projectile.position, projectile.color, 2);
           if (enemy.health <= 0) {
             this.destroyEnemy(enemyIndex, enemy);
@@ -824,7 +838,8 @@ export class Game {
           if (laserImpact?.reflects) {
             projectile.penetration = laserImpact.remainingPenetration;
             projectile.friendly = false;
-            projectile.velocity.x *= -1;
+            projectile.velocity = reflectVector(projectile.velocity, impact.normal);
+            projectile.position.add(projectile.velocity.clone().normalize().scale(1.5));
             projectile.turnTarget = null;
             break;
           }
@@ -835,6 +850,11 @@ export class Game {
               break;
             }
             continue;
+          }
+          if (projectile.blastRadius > 0) {
+            this.detonateFlak(projectile, enemy.id);
+            removeProjectile = true;
+            break;
           }
           if (projectile.pierce <= 0) {
             removeProjectile = true;
@@ -912,6 +932,7 @@ export class Game {
       turnTarget: number | null = null,
       beamLength = 0,
       penetration: number | null = null,
+      blastRadius = 0,
     ): void => {
       this.createPlayerProjectile(
         angle,
@@ -925,6 +946,7 @@ export class Game {
         turnTarget,
         beamLength,
         penetration,
+        blastRadius,
       );
     };
 
@@ -985,6 +1007,16 @@ export class Game {
         mount.cooldown += cooldown;
         mount.phase += 0.43;
         break;
+      case "rail":
+        fire(playerAngle, 0, 4, railPierce(mount.level));
+        mount.cooldown += cooldown;
+        mount.phase += 0.43;
+        break;
+      case "flak":
+        fire(playerAngle, 0, 6, 0, null, 0, null, flakBlastRadius(mount.level));
+        mount.cooldown += cooldown;
+        mount.phase += 0.43;
+        break;
       case "shell":
       case "shell2": {
         for (const angle of shellAngles(mount.id, mount.level)) {
@@ -1009,6 +1041,7 @@ export class Game {
     turnTarget: number | null = null,
     beamLength = 0,
     penetration: number | null = null,
+    blastRadius = 0,
   ): void {
     const player = this.player;
     if (!player) {
@@ -1030,7 +1063,31 @@ export class Game {
       turnTarget,
       beamLength,
       penetration,
+      blastRadius,
     });
+  }
+
+  private detonateFlak(projectile: Projectile, primaryEnemyId: number): void {
+    this.createBurst(projectile.position, projectile.color, 18);
+    for (let index = this.enemies.length - 1; index >= 0; index -= 1) {
+      const enemy = this.enemies[index];
+      if (!enemy || enemy.id === primaryEnemyId) {
+        continue;
+      }
+      const surfaceDistance = Math.max(
+        0,
+        Vector.between(projectile.position, enemy.position).length - enemy.radius,
+      );
+      const damage = flakSplashDamage(projectile.damage, projectile.blastRadius, surfaceDistance);
+      if (damage <= 0) {
+        continue;
+      }
+      enemy.health -= damage;
+      enemy.hitFlash = 1;
+      if (enemy.health <= 0) {
+        this.destroyEnemy(index, enemy);
+      }
+    }
   }
 
   private weaponPosition(mount: WeaponMount): Vector {
@@ -1179,15 +1236,15 @@ export class Game {
     return circlesOverlap(enemy.position, collision.radius, center, radius);
   }
 
-  private enemyProjectileHitFraction(
+  private enemyProjectileImpact(
     enemy: Enemy,
     start: Point,
     end: Point,
     projectileRadius: number,
-  ): number | null {
+  ): SegmentHit | null {
     const collision = ENEMIES[enemy.kind].collision;
     if (collision.type === "box") {
-      return segmentRectangleHitFraction(
+      return segmentRectangleHit(
         start,
         end,
         enemy.position,
@@ -1195,7 +1252,7 @@ export class Game {
         collision.halfHeight + projectileRadius,
       );
     }
-    return segmentCircleHitFraction(
+    return segmentCircleHit(
       start,
       end,
       enemy.position,
@@ -1473,11 +1530,10 @@ export class Game {
     if (!player) {
       return [];
     }
-    return player.ship.armory.map((id) => {
+    return player.ship.armory.map((id, hotkeySlot) => {
       const definition = WEAPONS[id];
       const mount = player.weapons.find((weapon) => weapon.id === id);
       const level = mount?.level ?? null;
-      const slot = mount ? player.weapons.indexOf(mount) : null;
       const cost = mount ? weaponUpgradeCost(mount.level) : definition.price;
       const maxHealth = mount ? weaponMaxDurability(definition, mount.level) : null;
       const repairCost = mount
@@ -1498,7 +1554,7 @@ export class Game {
       return {
         definition,
         level,
-        slot,
+        hotkeySlot,
         cost,
         canAfford: disabledReason === null && this.credits >= cost,
         disabledReason,
@@ -1517,16 +1573,27 @@ export class Game {
   }
 
   private applyQuickAction(action: QuickAction, slot: number): void {
-    const mount = this.player?.weapons[slot];
-    if (!mount) {
+    const player = this.player;
+    if (!player) {
       return;
     }
-    if (action === "upgrade") {
-      this.upgradeWeapon(mount.id);
-    } else if (action === "repair") {
-      this.repairWeapon(mount.id);
+    const resolved = resolveArmoryAction(
+      player.ship.armory,
+      player.weapons.map((weapon) => weapon.id),
+      action,
+      slot,
+    );
+    if (!resolved) {
+      return;
+    }
+    if (resolved.operation === "purchase") {
+      this.purchaseWeapon(resolved.id);
+    } else if (resolved.operation === "upgrade") {
+      this.upgradeWeapon(resolved.id);
+    } else if (resolved.operation === "repair") {
+      this.repairWeapon(resolved.id);
     } else {
-      this.reloadWeapon(mount.id);
+      this.reloadWeapon(resolved.id);
     }
   }
 

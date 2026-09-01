@@ -1,5 +1,12 @@
 import { type Point, Vector } from "./vector";
 
+export interface SegmentHit {
+  fraction: number;
+  normal: Vector;
+}
+
+const HIT_EPSILON = 1e-9;
+
 export function advanceCooldown(current: number, delta: number): number {
   return Math.max(0, current - delta);
 }
@@ -48,6 +55,29 @@ export function segmentCircleHitFraction(
   return exit >= 0 && exit <= 1 ? exit : null;
 }
 
+export function segmentCircleHit(
+  start: Point,
+  end: Point,
+  center: Point,
+  radius: number,
+): SegmentHit | null {
+  const fraction = segmentCircleHitFraction(start, end, center, radius);
+  if (fraction === null) {
+    return null;
+  }
+  const hitPoint = new Vector(
+    start.x + (end.x - start.x) * fraction,
+    start.y + (end.y - start.y) * fraction,
+  );
+  const normal = Vector.between(center, hitPoint).normalize();
+  if (normal.length === 0) {
+    normal.x = start.x - end.x;
+    normal.y = start.y - end.y;
+    normal.normalize();
+  }
+  return { fraction, normal };
+}
+
 export function segmentRectangleHitFraction(
   start: Point,
   end: Point,
@@ -55,15 +85,35 @@ export function segmentRectangleHitFraction(
   halfWidth: number,
   halfHeight: number,
 ): number | null {
+  return segmentRectangleHit(start, end, center, halfWidth, halfHeight)?.fraction ?? null;
+}
+
+export function segmentRectangleHit(
+  start: Point,
+  end: Point,
+  center: Point,
+  halfWidth: number,
+  halfHeight: number,
+): SegmentHit | null {
   let entry = 0;
   let exit = 1;
+  let normal = new Vector();
   const axes = [
-    { start: start.x, delta: end.x - start.x, minimum: center.x - halfWidth, maximum: center.x + halfWidth },
+    {
+      start: start.x,
+      delta: end.x - start.x,
+      minimum: center.x - halfWidth,
+      maximum: center.x + halfWidth,
+      negativeNormal: new Vector(-1, 0),
+      positiveNormal: new Vector(1, 0),
+    },
     {
       start: start.y,
       delta: end.y - start.y,
       minimum: center.y - halfHeight,
       maximum: center.y + halfHeight,
+      negativeNormal: new Vector(0, -1),
+      positiveNormal: new Vector(0, 1),
     },
   ];
 
@@ -74,15 +124,41 @@ export function segmentRectangleHitFraction(
       }
       continue;
     }
-    const first = (axis.minimum - axis.start) / axis.delta;
-    const second = (axis.maximum - axis.start) / axis.delta;
-    entry = Math.max(entry, Math.min(first, second));
-    exit = Math.min(exit, Math.max(first, second));
+    const minimumFraction = (axis.minimum - axis.start) / axis.delta;
+    const maximumFraction = (axis.maximum - axis.start) / axis.delta;
+    const nearFraction = Math.min(minimumFraction, maximumFraction);
+    const farFraction = Math.max(minimumFraction, maximumFraction);
+    const nearNormal = axis.delta > 0 ? axis.negativeNormal : axis.positiveNormal;
+    if (nearFraction > entry + HIT_EPSILON) {
+      entry = nearFraction;
+      normal = nearNormal.clone();
+    } else if (
+      nearFraction >= 0 &&
+      Math.abs(nearFraction - entry) <= HIT_EPSILON
+    ) {
+      normal.add(nearNormal).normalize();
+    }
+    exit = Math.min(exit, farFraction);
     if (entry > exit) {
       return null;
     }
   }
-  return entry >= 0 && entry <= 1 ? entry : null;
+  if (entry < 0 || entry > 1) {
+    return null;
+  }
+  if (normal.length === 0) {
+    normal = new Vector(start.x - end.x, start.y - end.y).normalize();
+  }
+  return { fraction: entry, normal };
+}
+
+export function reflectVector(velocity: Point, normal: Point): Vector {
+  const unitNormal = new Vector(normal.x, normal.y).normalize();
+  const projection = velocity.x * unitNormal.x + velocity.y * unitNormal.y;
+  return new Vector(
+    velocity.x - 2 * projection * unitNormal.x,
+    velocity.y - 2 * projection * unitNormal.y,
+  );
 }
 
 export function rectangleCircleOverlap(

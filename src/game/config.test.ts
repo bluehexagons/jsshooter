@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_WEAPONS,
   MAX_WEAPON_LEVEL,
   SHIPS,
   WEAPONS,
@@ -69,5 +70,15 @@ describe("wireframe models", () => {
   it("keeps explicit collision cores smaller than extreme decorative points", () => {
     const needle = SHIPS.find((ship) => ship.id === "focus");
     expect(needle?.collisionRadius).toBeLessThan(20);
+  });
+
+  it("keeps every weapon available without exceeding the five armory hotkeys", () => {
+    const availableWeapons = new Set(SHIPS.flatMap((ship) => ship.armory));
+    expect([...availableWeapons].sort()).toEqual(Object.keys(WEAPONS).sort());
+    for (const ship of SHIPS) {
+      expect(ship.armory.length, `${ship.name} has too many armory entries`).toBeLessThanOrEqual(
+        MAX_WEAPONS,
+      );
+    }
   });
 });
