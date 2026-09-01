@@ -4,7 +4,7 @@ Corvus is a wireframe side-scrolling shooter that began as a browser experiment 
 
 Weapons are physical mounts around the ship: they fire from their own muzzles, intercept enemy fire and collisions before the hull, take damage, and can be repaired or destroyed.
 
-Each frame has a role-focused armory. The modern additions include a penetrating Rail Spike for aligned targets and an impact-detonated Flak Charge for clustered formations.
+Each frame has a role-focused armory. Modern additions include a penetrating Rail Spike, an impact-detonated Flak Charge, a target-acquiring Hunter Drone, and a sweeping Guard Blade. Orbit repeaters, drones, and blades move independently around their ship: their physical models intercept impacts and their shots originate from the moving mount.
 
 Play it at [bluehexagons.github.io/jsshooter](https://bluehexagons.github.io/jsshooter/).
 

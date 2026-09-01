@@ -47,4 +47,9 @@ describe("legacy weapon upgrades", () => {
     expect(flakSplashDamage(30, 60, 45)).toBeLessThan(20);
     expect(flakSplashDamage(30, 60, 60)).toBe(0);
   });
+
+  it("improves the new escort and guard weapons with upgrades", () => {
+    expect(weaponCooldown(WEAPONS.drone, 2)).toBeLessThan(weaponCooldown(WEAPONS.drone, 1));
+    expect(weaponDamage(WEAPONS.blade, 2)).toBeGreaterThan(weaponDamage(WEAPONS.blade, 1));
+  });
 });

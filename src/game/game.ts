@@ -24,6 +24,7 @@ import {
 } from "./enemies";
 import { InputController, type QuickAction } from "./input";
 import { resolveArmoryAction } from "./loadout";
+import { advanceMountMotion, animatedMountOffset, mountMotionBounds } from "./mount-motion";
 import {
   advanceCooldown,
   reflectVector,
@@ -112,6 +113,7 @@ interface WeaponMount {
   level: number;
   cooldown: number;
   phase: number;
+  motionPhase: number;
   health: number;
   ammo: number | null;
   burstShots: number;
@@ -339,6 +341,7 @@ export class Game {
       level: 1,
       cooldown: definition.cooldown * (0.45 + player.weapons.length * 0.35),
       phase: player.weapons.length * 0.7,
+      motionPhase: player.ship.armory.indexOf(id) * 0.9,
       health: weaponMaxDurability(definition, 1),
       ammo: definition.ammoCapacity,
       burstShots: 0,
@@ -500,6 +503,11 @@ export class Game {
     player.baseCooldown = advanceCooldown(player.baseCooldown, delta);
 
     for (const weapon of player.weapons) {
+      weapon.motionPhase = advanceMountMotion(
+        weapon.motionPhase,
+        WEAPONS[weapon.id].movement,
+        delta,
+      );
       weapon.cooldown = advanceCooldown(weapon.cooldown, delta);
       weapon.contactCooldown = Math.max(0, weapon.contactCooldown - delta);
       weapon.hitFlash = Math.max(0, weapon.hitFlash - delta * 5);
@@ -705,8 +713,12 @@ export class Game {
             this.damageWeapon(blockingMount, absorbed);
             enemy.health -= absorbed;
           } else {
-            this.damageWeapon(blockingMount, enemy.contactDamage * 0.48);
-            enemy.health -= 16;
+            const definition = WEAPONS[blockingMount.id];
+            this.damageWeapon(
+              blockingMount,
+              enemy.contactDamage * (definition.contactDamageTakenScale ?? 0.48),
+            );
+            enemy.health -= definition.contactDamage ?? 16;
           }
         }
         enemy.velocity.x = Math.max(150, Math.abs(enemy.velocity.x) * 0.7);
@@ -933,6 +945,7 @@ export class Game {
       beamLength = 0,
       penetration: number | null = null,
       blastRadius = 0,
+      life = 2.4,
     ): void => {
       this.createPlayerProjectile(
         angle,
@@ -947,6 +960,7 @@ export class Game {
         beamLength,
         penetration,
         blastRadius,
+        life,
       );
     };
 
@@ -1007,6 +1021,18 @@ export class Game {
         mount.cooldown += cooldown;
         mount.phase += 0.43;
         break;
+      case "drone": {
+        const targetAngle = this.droneTargetAngle(origin, playerAngle);
+        fire(targetAngle + Math.sin(mount.phase) * 0.025);
+        mount.cooldown += cooldown;
+        mount.phase += 0.7;
+        break;
+      }
+      case "blade":
+        fire(playerAngle, 0, 7, 1, null, 24, null, 0, 0.58);
+        mount.cooldown += cooldown;
+        mount.phase += 0.43;
+        break;
       case "rail":
         fire(playerAngle, 0, 4, railPierce(mount.level));
         mount.cooldown += cooldown;
@@ -1042,6 +1068,7 @@ export class Game {
     beamLength = 0,
     penetration: number | null = null,
     blastRadius = 0,
+    life = 2.4,
   ): void {
     const player = this.player;
     if (!player) {
@@ -1055,7 +1082,7 @@ export class Game {
       velocity: Vector.fromAngle(angle, speed),
       radius,
       damage,
-      life: 2.4,
+      life,
       color,
       friendly: true,
       pierce,
@@ -1096,7 +1123,15 @@ export class Game {
       return new Vector();
     }
     const offset = player.ship.mounts[mount.id];
-    return offset ? this.playerOffsetPosition(player, offset) : player.position.clone();
+    if (!offset) {
+      return player.position.clone();
+    }
+    const animatedOffset = animatedMountOffset(
+      offset,
+      WEAPONS[mount.id].movement,
+      mount.motionPhase,
+    );
+    return this.playerOffsetPosition(player, animatedOffset);
   }
 
   private weaponMuzzlePosition(mount: WeaponMount): Vector {
@@ -1106,7 +1141,8 @@ export class Game {
     }
     const definition = WEAPONS[mount.id];
     const position = this.weaponPosition(mount);
-    const angle = player.angle + (mount.id === "orbit" ? mount.phase * 0.18 : 0);
+    const angle =
+      mount.id === "drone" ? this.droneTargetAngle(position, player.angle) : player.angle;
     return position
       .add(Vector.fromAngle(angle, definition.muzzleOffset.x))
       .add(Vector.fromAngle(angle + Math.PI / 2, definition.muzzleOffset.y));
@@ -1114,6 +1150,25 @@ export class Game {
 
   private playerOffsetPosition(player: Player, offset: Point): Vector {
     return transformLocalPoint(player.position, player.angle, offset);
+  }
+
+  private droneTargetAngle(origin: Point, fallbackAngle: number): number {
+    let closestDistance = 720;
+    let targetAngle = fallbackAngle;
+    for (const enemy of this.enemies) {
+      const direction = Vector.between(origin, enemy.position);
+      const angleDifference = Math.abs(
+        Math.atan2(
+          Math.sin(direction.angle - fallbackAngle),
+          Math.cos(direction.angle - fallbackAngle),
+        ),
+      );
+      if (direction.length < closestDistance && angleDifference < 1.2) {
+        closestDistance = direction.length;
+        targetAngle = direction.angle;
+      }
+    }
+    return targetAngle;
   }
 
   private clampPlayerToWorld(player: Player): void {
@@ -1135,10 +1190,20 @@ export class Game {
     for (const mount of player.weapons) {
       const offset = player.ship.mounts[mount.id];
       if (offset) {
-        includePoint(
-          transformLocalPoint({ x: 0, y: 0 }, player.angle, offset),
-          WEAPONS[mount.id].collisionRadius,
+        const definition = WEAPONS[mount.id];
+        const bounds = mountMotionBounds(
+          offset,
+          definition.movement,
+          definition.collisionRadius,
         );
+        for (const corner of [
+          bounds.minimum,
+          { x: bounds.minimum.x, y: bounds.maximum.y },
+          bounds.maximum,
+          { x: bounds.maximum.x, y: bounds.minimum.y },
+        ]) {
+          includePoint(transformLocalPoint({ x: 0, y: 0 }, player.angle, corner));
+        }
       }
     }
 
@@ -1409,9 +1474,23 @@ export class Game {
     const damaged = mount.health < maximum;
     const blinking = mount.hitFlash > 0 && Math.floor(time * 18) % 2 === 0;
 
+    if (definition.movement) {
+      context.save();
+      context.strokeStyle = `${definition.color}2e`;
+      context.lineWidth = 1;
+      context.setLineDash([3, 6]);
+      context.beginPath();
+      context.moveTo(player.position.x, player.position.y);
+      context.lineTo(position.x, position.y);
+      context.stroke();
+      context.restore();
+    }
+
     context.save();
     context.translate(position.x, position.y);
-    context.rotate(player.angle + (mount.id === "orbit" ? mount.phase * 0.18 : 0));
+    context.rotate(
+      mount.id === "drone" ? this.droneTargetAngle(position, player.angle) : player.angle,
+    );
     context.strokeStyle = blinking ? "#ffffff" : definition.color;
     context.fillStyle = `${definition.color}18`;
     context.shadowColor = definition.color;
@@ -1421,7 +1500,20 @@ export class Game {
     context.fill();
     context.stroke();
     this.traceSegments(definition.details);
-    if (mount.id === "spray") {
+    if (mount.id === "fan") {
+      const barrelAngle = Math.sin(mount.phase) * 0.68;
+      context.beginPath();
+      context.moveTo(-3, 0);
+      context.lineTo(Math.cos(barrelAngle) * 17, Math.sin(barrelAngle) * 17);
+      context.stroke();
+    } else if (mount.id === "pulse") {
+      const charge = (mount.clipAmmo ?? 0) / pulseClipSize(mount.level);
+      context.beginPath();
+      context.moveTo(-5, 0);
+      context.lineTo(-5 + 20 * charge, 0);
+      context.lineWidth = 3;
+      context.stroke();
+    } else if (mount.id === "spray") {
       const barrelCount = 5 + mount.level * 2;
       for (let barrel = 0; barrel < barrelCount; barrel += 1) {
         const arc = barrelCount === 1 ? 0 : barrel / (barrelCount - 1) - 0.5;

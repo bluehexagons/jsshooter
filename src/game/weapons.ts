@@ -16,7 +16,12 @@ export function weaponCooldown(definition: WeaponDefinition, level: number): num
   if (definition.id === "shell" || definition.id === "shell2") {
     return definition.cooldown / Math.pow(1.03, upgrades);
   }
-  if (definition.id === "rail" || definition.id === "flak") {
+  if (
+    definition.id === "rail" ||
+    definition.id === "flak" ||
+    definition.id === "drone" ||
+    definition.id === "blade"
+  ) {
     return definition.cooldown / Math.pow(1.05, upgrades);
   }
   return definition.cooldown;
@@ -29,6 +34,8 @@ export function weaponDamage(definition: WeaponDefinition, level: number): numbe
     definition.id === "rapid2" ||
     definition.id === "fan" ||
     definition.id === "pulse" ||
+    definition.id === "drone" ||
+    definition.id === "blade" ||
     definition.id === "rail" ||
     definition.id === "flak"
   ) {

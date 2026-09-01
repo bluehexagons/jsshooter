@@ -22,12 +22,24 @@ export type WeaponId =
   | "spray"
   | "laser"
   | "orbit"
+  | "drone"
+  | "blade"
   | "rail"
   | "flak"
   | "shell"
   | "shell2";
 
 export type WireframeSegment = readonly [Point, Point];
+
+export type WeaponMovement =
+  | { readonly kind: "orbit"; readonly speed: number }
+  | {
+      readonly kind: "weave";
+      readonly horizontal: number;
+      readonly vertical: number;
+      readonly speed: number;
+    }
+  | { readonly kind: "sweep"; readonly amplitude: number; readonly speed: number };
 
 export interface ShipDefinition {
   id: ShipId;
@@ -57,6 +69,9 @@ export interface WeaponDefinition {
   shape: readonly Point[];
   details: readonly WireframeSegment[];
   muzzleOffset: Point;
+  movement?: WeaponMovement;
+  contactDamage?: number;
+  contactDamageTakenScale?: number;
   ammoCapacity: number | null;
   reloadPrice: number;
 }
@@ -83,13 +98,13 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: 3, y: 11 }, { x: 8, y: 0 }],
       [{ x: 3, y: -11 }, { x: 8, y: 0 }],
     ],
-    armory: ["rapid", "fan", "pulse", "rail", "flak"],
+    armory: ["rapid", "fan", "pulse", "rail", "drone"],
     mounts: {
       rapid: { x: 8, y: -30 },
       fan: { x: -31, y: 15 },
       pulse: { x: 38, y: 0 },
       rail: { x: -28, y: -23 },
-      flak: { x: 8, y: 30 },
+      drone: { x: 5, y: 44 },
     },
   },
   {
@@ -123,7 +138,7 @@ export const SHIPS: readonly ShipDefinition[] = [
       fan: { x: 5, y: -27 },
       shell2: { x: 5, y: 27 },
       spray: { x: -27, y: 0 },
-      orbit: { x: 44, y: 0 },
+      orbit: { x: 76, y: 0 },
       flak: { x: -24, y: 36 },
     },
   },
@@ -155,11 +170,12 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: 22, y: 15 }, { x: 31, y: 0 }],
       [{ x: 22, y: -15 }, { x: 31, y: 0 }],
     ],
-    armory: ["shell", "shell2", "flak"],
+    armory: ["shell", "shell2", "flak", "blade"],
     mounts: {
       shell: { x: 6, y: -34 },
       shell2: { x: 8, y: 34 },
       flak: { x: -30, y: 0 },
+      blade: { x: 49, y: 0 },
     },
   },
   {
@@ -185,11 +201,12 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: 3, y: 3 }, { x: 13, y: 0 }],
       [{ x: 3, y: -3 }, { x: 13, y: 0 }],
     ],
-    armory: ["laser", "rapid", "rail"],
+    armory: ["laser", "rapid", "rail", "drone"],
     mounts: {
       laser: { x: 8, y: -23 },
       rapid: { x: 8, y: 23 },
       rail: { x: 45, y: 0 },
+      drone: { x: -25, y: 52 },
     },
   },
   {
@@ -219,7 +236,7 @@ export const SHIPS: readonly ShipDefinition[] = [
     mounts: {
       rapid: { x: 0, y: -27 },
       rapid2: { x: 0, y: 27 },
-      orbit: { x: 32, y: 0 },
+      orbit: { x: 58, y: 0 },
       fan: { x: -27, y: 0 },
     },
   },
@@ -247,11 +264,12 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: -10, y: 0 }, { x: 0, y: -9 }],
       [{ x: 0, y: -9 }, { x: 19, y: 0 }],
     ],
-    armory: ["laser", "rail", "flak"],
+    armory: ["laser", "rail", "flak", "drone"],
     mounts: {
       laser: { x: 30, y: 0 },
       rail: { x: -18, y: -28 },
       flak: { x: -18, y: 28 },
+      drone: { x: 34, y: 54 },
     },
   },
   {
@@ -277,11 +295,12 @@ export const SHIPS: readonly ShipDefinition[] = [
       [{ x: -7, y: 11 }, { x: 8, y: 0 }],
       [{ x: -7, y: -11 }, { x: 8, y: 0 }],
     ],
-    armory: ["shell", "shell2", "pulse"],
+    armory: ["shell", "shell2", "blade", "fan"],
     mounts: {
       shell: { x: 2, y: -28 },
       shell2: { x: 2, y: 28 },
-      pulse: { x: 38, y: 0 },
+      blade: { x: 51, y: 0 },
+      fan: { x: -32, y: 0 },
     },
   },
 ] as const;
@@ -463,7 +482,7 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
   orbit: {
     id: "orbit",
     name: "Orbit repeater",
-    description: "Rotating twin emitters weave a dense pattern.",
+    description: "A gyrostabilized repeater that circles the hull while firing downrange.",
     price: 25,
     cooldown: 0.26,
     damage: 7,
@@ -486,6 +505,71 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
       [{ x: 0, y: -12 }, { x: 0, y: 12 }],
     ],
     muzzleOffset: { x: 14, y: 0 },
+    movement: { kind: "orbit", speed: 4.2 },
+    ammoCapacity: null,
+    reloadPrice: 0,
+  },
+  drone: {
+    id: "drone",
+    name: "Hunter drone",
+    description: "A weaving escort that acquires a nearby target and fires from its own position.",
+    price: 30,
+    cooldown: 0.32,
+    damage: 11,
+    projectileSpeed: 880,
+    color: "#63f3c3",
+    durability: 42,
+    collisionRadius: 13,
+    shape: [
+      { x: 15, y: 0 },
+      { x: 4, y: 5 },
+      { x: -5, y: 12 },
+      { x: -10, y: 4 },
+      { x: -7, y: 0 },
+      { x: -10, y: -4 },
+      { x: -5, y: -12 },
+      { x: 4, y: -5 },
+    ],
+    details: [
+      [{ x: -8, y: 0 }, { x: 13, y: 0 }],
+      [{ x: -5, y: 9 }, { x: 2, y: 3 }],
+      [{ x: -5, y: -9 }, { x: 2, y: -3 }],
+    ],
+    muzzleOffset: { x: 15, y: 0 },
+    movement: { kind: "weave", horizontal: 20, vertical: 8, speed: 2.35 },
+    ammoCapacity: null,
+    reloadPrice: 0,
+  },
+  blade: {
+    id: "blade",
+    name: "Guard blade",
+    description: "A sweeping armored interceptor that cuts attackers and casts short shock waves.",
+    price: 35,
+    cooldown: 0.48,
+    damage: 22,
+    projectileSpeed: 680,
+    color: "#fff18a",
+    durability: 88,
+    collisionRadius: 18,
+    shape: [
+      { x: 24, y: 0 },
+      { x: 8, y: 5 },
+      { x: -15, y: 9 },
+      { x: -20, y: 3 },
+      { x: -14, y: 0 },
+      { x: -20, y: -3 },
+      { x: -15, y: -9 },
+      { x: 8, y: -5 },
+    ],
+    details: [
+      [{ x: -17, y: 0 }, { x: 22, y: 0 }],
+      [{ x: -12, y: -6 }, { x: 8, y: -3 }],
+      [{ x: -12, y: 6 }, { x: 8, y: 3 }],
+    ],
+    muzzleOffset: { x: 24, y: 0 },
+    movement: { kind: "sweep", amplitude: 32, speed: 2.8 },
+    contactDamage: 48,
+    contactDamageTakenScale: 0.22,
     ammoCapacity: null,
     reloadPrice: 0,
   },
