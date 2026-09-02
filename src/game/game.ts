@@ -48,6 +48,12 @@ import {
 } from "./spawning";
 import { circlesOverlap, clamp, type Point, Vector } from "./vector";
 import {
+  advanceWeaponFeedback,
+  createWeaponFeedback,
+  triggerWeaponFeedback,
+  type WeaponFeedback,
+} from "./weapon-feedback";
+import {
   flakBlastRadius,
   flakSplashDamage,
   pulseClipSize,
@@ -114,6 +120,7 @@ interface WeaponMount {
   cooldown: number;
   phase: number;
   motionPhase: number;
+  feedback: WeaponFeedback;
   health: number;
   ammo: number | null;
   burstShots: number;
@@ -342,6 +349,7 @@ export class Game {
       cooldown: definition.cooldown * (0.45 + player.weapons.length * 0.35),
       phase: player.weapons.length * 0.7,
       motionPhase: player.ship.armory.indexOf(id) * 0.9,
+      feedback: createWeaponFeedback(),
       health: weaponMaxDurability(definition, 1),
       ammo: definition.ammoCapacity,
       burstShots: 0,
@@ -503,10 +511,16 @@ export class Game {
     player.baseCooldown = advanceCooldown(player.baseCooldown, delta);
 
     for (const weapon of player.weapons) {
+      const definition = WEAPONS[weapon.id];
+      weapon.feedback = advanceWeaponFeedback(
+        weapon.feedback,
+        delta,
+        definition.recoilDistance,
+      );
       weapon.motionPhase = advanceMountMotion(
         weapon.motionPhase,
-        WEAPONS[weapon.id].movement,
-        delta,
+        definition.movement,
+        delta * (1 + weapon.feedback.activity * 0.16),
       );
       weapon.cooldown = advanceCooldown(weapon.cooldown, delta);
       weapon.contactCooldown = Math.max(0, weapon.contactCooldown - delta);
@@ -935,6 +949,9 @@ export class Game {
     const definition = WEAPONS[mount.id];
     const cooldown = weaponCooldown(definition, mount.level);
     const damage = weaponDamage(definition, mount.level);
+    const mountPosition = this.weaponPosition(mount);
+    const mountFacingAngle =
+      mount.id === "drone" ? this.droneTargetAngle(mountPosition, playerAngle) : playerAngle;
     const origin = this.weaponMuzzlePosition(mount);
     const fire = (
       angle: number,
@@ -962,6 +979,11 @@ export class Game {
         blastRadius,
         life,
       );
+      const muzzleAngle = Math.atan2(
+        Math.sin(angle - mountFacingAngle),
+        Math.cos(angle - mountFacingAngle),
+      );
+      mount.feedback = triggerWeaponFeedback(mount.feedback, muzzleAngle);
     };
 
     switch (mount.id) {
@@ -1491,6 +1513,9 @@ export class Game {
     context.rotate(
       mount.id === "drone" ? this.droneTargetAngle(position, player.angle) : player.angle,
     );
+    const recoilOffset =
+      definition.recoilDistance * Math.sin((mount.feedback.recoil * Math.PI) / 2);
+    context.translate(-recoilOffset, 0);
     context.strokeStyle = blinking ? "#ffffff" : definition.color;
     context.fillStyle = `${definition.color}18`;
     context.shadowColor = definition.color;
@@ -1500,37 +1525,8 @@ export class Game {
     context.fill();
     context.stroke();
     this.traceSegments(definition.details);
-    if (mount.id === "fan") {
-      const barrelAngle = Math.sin(mount.phase) * 0.68;
-      context.beginPath();
-      context.moveTo(-3, 0);
-      context.lineTo(Math.cos(barrelAngle) * 17, Math.sin(barrelAngle) * 17);
-      context.stroke();
-    } else if (mount.id === "pulse") {
-      const charge = (mount.clipAmmo ?? 0) / pulseClipSize(mount.level);
-      context.beginPath();
-      context.moveTo(-5, 0);
-      context.lineTo(-5 + 20 * charge, 0);
-      context.lineWidth = 3;
-      context.stroke();
-    } else if (mount.id === "spray") {
-      const barrelCount = 5 + mount.level * 2;
-      for (let barrel = 0; barrel < barrelCount; barrel += 1) {
-        const arc = barrelCount === 1 ? 0 : barrel / (barrelCount - 1) - 0.5;
-        const angle = arc * (140 * Math.PI) / 180;
-        context.beginPath();
-        context.moveTo(-2, 0);
-        context.lineTo(Math.cos(angle) * 15, Math.sin(angle) * 15);
-        context.stroke();
-      }
-    } else if (mount.id === "shell" || mount.id === "shell2") {
-      for (const angle of shellAngles(mount.id, mount.level)) {
-        context.beginPath();
-        context.moveTo(2, 0);
-        context.lineTo(Math.cos(angle) * 15, Math.sin(angle) * 15);
-        context.stroke();
-      }
-    }
+    this.renderWeaponMechanism(mount, definition);
+    this.renderMuzzleFlash(mount, definition);
     context.restore();
 
     if (damaged || mount.hitFlash > 0) {
@@ -1540,6 +1536,186 @@ export class Game {
       context.fillRect(position.x - width / 2, position.y - definition.collisionRadius - 8, width, 2);
       context.fillStyle = ratio < 0.3 ? "#ff5c75" : definition.color;
       context.fillRect(position.x - width / 2, position.y - definition.collisionRadius - 8, width * ratio, 2);
+    }
+  }
+
+  private renderWeaponMechanism(
+    mount: WeaponMount,
+    definition: WeaponDefinition,
+  ): void {
+    const context = this.context;
+    context.save();
+    switch (mount.id) {
+      case "rapid":
+      case "rapid2": {
+        const side = mount.id === "rapid" ? -1 : 1;
+        const boltX = 5 - mount.feedback.recoil * 8;
+        context.beginPath();
+        context.moveTo(boltX - 5, side * 2.5);
+        context.lineTo(boltX + 3, side * 2.5);
+        context.lineWidth = 2.5;
+        context.stroke();
+        break;
+      }
+      case "fan": {
+        const barrelAngle = Math.sin(mount.phase) * 0.68;
+        context.beginPath();
+        context.moveTo(-3, 0);
+        context.lineTo(Math.cos(barrelAngle) * 17, Math.sin(barrelAngle) * 17);
+        context.lineWidth = 1.5 + mount.feedback.activity;
+        context.stroke();
+        break;
+      }
+      case "pulse": {
+        const clipCharge = (mount.clipAmmo ?? 0) / pulseClipSize(mount.level);
+        const reloadRemaining = clamp(
+          (mount.cooldown - definition.cooldown) / pulseReloadTime(mount.level),
+          0,
+          1,
+        );
+        const visibleCharge = clipCharge * (1 - reloadRemaining);
+        context.beginPath();
+        context.moveTo(-6, 0);
+        context.lineTo(-6 + 22 * visibleCharge, 0);
+        context.lineWidth = 3.5;
+        context.stroke();
+        context.beginPath();
+        context.arc(4, 0, 3 + visibleCharge * 4, 0, Math.PI * 2);
+        context.lineWidth = 1;
+        context.stroke();
+        break;
+      }
+      case "spray": {
+        const barrelCount = 5 + mount.level * 2;
+        const activeBarrel =
+          ((Math.floor(mount.phase) - 1) % barrelCount + barrelCount) % barrelCount;
+        for (let barrel = 0; barrel < barrelCount; barrel += 1) {
+          const arc = barrelCount === 1 ? 0 : barrel / (barrelCount - 1) - 0.5;
+          const angle = arc * (140 * Math.PI) / 180;
+          context.globalAlpha = barrel === activeBarrel ? 1 : 0.4;
+          context.lineWidth = barrel === activeBarrel ? 2.5 : 1;
+          context.beginPath();
+          context.moveTo(-2, 0);
+          context.lineTo(Math.cos(angle) * 15, Math.sin(angle) * 15);
+          context.stroke();
+        }
+        break;
+      }
+      case "laser": {
+        const capacitor = mount.burstShots / 30;
+        context.fillStyle = definition.color;
+        context.globalAlpha = 0.25 + capacitor * 0.65;
+        context.fillRect(-9, -3, 17 * capacitor, 6);
+        context.beginPath();
+        context.arc(4, 0, 4 + capacitor * 3, 0, Math.PI * 2);
+        context.lineWidth = 1 + capacitor * 1.5;
+        context.stroke();
+        break;
+      }
+      case "orbit":
+        context.rotate(mount.motionPhase * 1.8);
+        context.beginPath();
+        context.moveTo(-7, -7);
+        context.lineTo(7, 7);
+        context.moveTo(7, -7);
+        context.lineTo(-7, 7);
+        context.lineWidth = 1 + mount.feedback.activity;
+        context.stroke();
+        break;
+      case "drone": {
+        const wingFlex = Math.sin(mount.motionPhase * 2) * 2;
+        context.beginPath();
+        context.moveTo(-5, -4);
+        context.lineTo(-9, -10 - wingFlex);
+        context.moveTo(-5, 4);
+        context.lineTo(-9, 10 + wingFlex);
+        context.stroke();
+        context.beginPath();
+        context.arc(7, 0, 2.5 + mount.feedback.activity, 0, Math.PI * 2);
+        context.fillStyle = definition.color;
+        context.globalAlpha = 0.45 + mount.feedback.activity * 0.5;
+        context.fill();
+        break;
+      }
+      case "blade": {
+        const sweepEnergy = 0.35 + Math.abs(Math.cos(mount.motionPhase)) * 0.65;
+        context.beginPath();
+        context.moveTo(-16, -2);
+        context.lineTo(22, 0);
+        context.lineTo(-16, 2);
+        context.globalAlpha = sweepEnergy;
+        context.lineWidth = 1.5 + mount.feedback.activity * 2;
+        context.stroke();
+        break;
+      }
+      case "rail": {
+        const charge = clamp(
+          1 - mount.cooldown / weaponCooldown(definition, mount.level),
+          0,
+          1,
+        );
+        const railSpread = 3 + charge * 2;
+        context.beginPath();
+        context.moveTo(-10, -railSpread);
+        context.lineTo(18, -railSpread);
+        context.moveTo(-10, railSpread);
+        context.lineTo(18, railSpread);
+        context.stroke();
+        context.beginPath();
+        context.moveTo(-10, 0);
+        context.lineTo(-10 + 30 * charge, 0);
+        context.lineWidth = 2.5;
+        context.stroke();
+        break;
+      }
+      case "flak": {
+        const chamberRadius = 4 + mount.feedback.activity * 4;
+        context.beginPath();
+        context.arc(1, 0, chamberRadius, 0, Math.PI * 2);
+        context.lineWidth = 1 + mount.feedback.activity * 1.5;
+        context.stroke();
+        break;
+      }
+      case "shell":
+      case "shell2": {
+        const barrelLength = 15 - mount.feedback.recoil * 3;
+        for (const angle of shellAngles(mount.id, mount.level)) {
+          context.beginPath();
+          context.moveTo(Math.cos(angle) * 2, Math.sin(angle) * 2);
+          context.lineTo(Math.cos(angle) * barrelLength, Math.sin(angle) * barrelLength);
+          context.lineWidth = 1.5;
+          context.stroke();
+        }
+        break;
+      }
+    }
+    context.restore();
+  }
+
+  private renderMuzzleFlash(mount: WeaponMount, definition: WeaponDefinition): void {
+    if (mount.feedback.muzzleFlashes.length === 0) {
+      return;
+    }
+    const context = this.context;
+    for (const flash of mount.feedback.muzzleFlashes) {
+      const length = definition.muzzleFlashSize * (0.55 + flash.intensity * 0.45);
+      const width = 2 + definition.muzzleFlashSize * 0.28 * flash.intensity;
+      context.save();
+      context.rotate(flash.angle);
+      context.translate(definition.muzzleOffset.x, definition.muzzleOffset.y);
+      context.globalAlpha = 0.35 + flash.intensity * 0.65;
+      context.fillStyle = "#ffffff";
+      context.beginPath();
+      context.moveTo(0, 0);
+      context.lineTo(length, -width);
+      context.lineTo(length * 0.65, 0);
+      context.lineTo(length, width);
+      context.closePath();
+      context.fill();
+      context.strokeStyle = definition.color;
+      context.lineWidth = 1.25;
+      context.stroke();
+      context.restore();
     }
   }
 

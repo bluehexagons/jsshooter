@@ -66,6 +66,8 @@ export interface WeaponDefinition {
   color: string;
   durability: number;
   collisionRadius: number;
+  recoilDistance: number;
+  muzzleFlashSize: number;
   shape: readonly Point[];
   details: readonly WireframeSegment[];
   muzzleOffset: Point;
@@ -317,6 +319,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#79eaff",
     durability: 38,
     collisionRadius: 14,
+    recoilDistance: 4,
+    muzzleFlashSize: 8,
     shape: [
       { x: 14, y: 0 },
       { x: 5, y: 4 },
@@ -345,6 +349,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#79eaff",
     durability: 38,
     collisionRadius: 14,
+    recoilDistance: 4,
+    muzzleFlashSize: 8,
     shape: [
       { x: 14, y: 0 },
       { x: 5, y: 4 },
@@ -373,6 +379,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#b9f6ff",
     durability: 42,
     collisionRadius: 14,
+    recoilDistance: 3,
+    muzzleFlashSize: 7,
     shape: [
       { x: 14, y: 0 },
       { x: 3, y: 5 },
@@ -403,6 +411,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#c594ff",
     durability: 48,
     collisionRadius: 17,
+    recoilDistance: 9,
+    muzzleFlashSize: 14,
     shape: [
       { x: 18, y: 0 },
       { x: 8, y: 8 },
@@ -433,6 +443,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#93a7ff",
     durability: 40,
     collisionRadius: 15,
+    recoilDistance: 3,
+    muzzleFlashSize: 6,
     shape: [
       { x: 14, y: 0 },
       { x: -7, y: 13 },
@@ -461,6 +473,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#ff5f84",
     durability: 32,
     collisionRadius: 18,
+    recoilDistance: 1.5,
+    muzzleFlashSize: 11,
     shape: [
       { x: 20, y: 0 },
       { x: 8, y: 4 },
@@ -490,6 +504,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#80a6ff",
     durability: 35,
     collisionRadius: 14,
+    recoilDistance: 4,
+    muzzleFlashSize: 8,
     shape: [
       { x: 14, y: 0 },
       { x: 5, y: 5 },
@@ -520,6 +536,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#63f3c3",
     durability: 42,
     collisionRadius: 13,
+    recoilDistance: 5,
+    muzzleFlashSize: 8,
     shape: [
       { x: 15, y: 0 },
       { x: 4, y: 5 },
@@ -551,6 +569,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#fff18a",
     durability: 88,
     collisionRadius: 18,
+    recoilDistance: 10,
+    muzzleFlashSize: 15,
     shape: [
       { x: 24, y: 0 },
       { x: 8, y: 5 },
@@ -584,6 +604,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#70f0b1",
     durability: 46,
     collisionRadius: 15,
+    recoilDistance: 13,
+    muzzleFlashSize: 17,
     shape: [
       { x: 22, y: 0 },
       { x: 8, y: 5 },
@@ -613,6 +635,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#ffb66e",
     durability: 55,
     collisionRadius: 16,
+    recoilDistance: 10,
+    muzzleFlashSize: 14,
     shape: [
       { x: 17, y: 0 },
       { x: 8, y: 9 },
@@ -642,6 +666,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#ffd284",
     durability: 72,
     collisionRadius: 14,
+    recoilDistance: 7,
+    muzzleFlashSize: 11,
     shape: [
       { x: 16, y: 0 },
       { x: 10, y: 10 },
@@ -672,6 +698,8 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponDefinition>> = {
     color: "#ffd284",
     durability: 72,
     collisionRadius: 14,
+    recoilDistance: 7,
+    muzzleFlashSize: 11,
     shape: [
       { x: 16, y: 0 },
       { x: 10, y: 10 },

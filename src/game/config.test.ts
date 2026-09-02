@@ -128,4 +128,11 @@ describe("wireframe models", () => {
       ).toBe(true);
     }
   });
+
+  it("defines visible firing feedback for every physical weapon", () => {
+    for (const weapon of Object.values(WEAPONS)) {
+      expect(weapon.recoilDistance, `${weapon.name} has no recoil`).toBeGreaterThan(0);
+      expect(weapon.muzzleFlashSize, `${weapon.name} has no muzzle flash`).toBeGreaterThan(0);
+    }
+  });
 });
