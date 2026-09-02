@@ -8,6 +8,7 @@ import {
   WEAPONS,
   type WeaponDefinition,
   type WeaponId,
+  type WireframeSegment,
   weaponMaxDurability,
   weaponRepairCost as calculateWeaponRepairCost,
   weaponUpgradeCost,
@@ -22,6 +23,12 @@ import {
   type EnemyKind,
   type FormationId,
 } from "./enemies";
+import {
+  advanceWireFragment,
+  createWireExplosion,
+  type WireFragment,
+  wireFragmentOpacity,
+} from "./destruction";
 import {
   advanceEffectParticle,
   effectOpacity,
@@ -72,7 +79,7 @@ import {
   weaponDamage,
 } from "./weapons";
 
-export type GameState = "menu" | "playing" | "paused" | "gameover";
+export type GameState = "menu" | "playing" | "paused" | "destroyed" | "gameover";
 
 export interface GameSnapshot {
   state: GameState;
@@ -215,6 +222,8 @@ const BASE_FIRE_COOLDOWN = 0.5;
 const HIGH_SCORE_KEY = "corvus-high-score";
 const RESPAWN_COST = 2500;
 const MAX_PARTICLES = 520;
+const MAX_WIRE_FRAGMENTS = 420;
+const DESTRUCTION_DURATION = 1.75;
 
 export class Game {
   private readonly context: CanvasRenderingContext2D;
@@ -225,6 +234,7 @@ export class Game {
   private readonly projectiles: Projectile[] = [];
   private readonly enemies: Enemy[] = [];
   private readonly particles: EffectParticle[] = [];
+  private readonly wireFragments: WireFragment[] = [];
   private readonly scheduledFormations: ScheduledFormation[] = [];
   private player: Player | null = null;
   private state: GameState = "menu";
@@ -240,6 +250,8 @@ export class Game {
   private screenFlash = 0;
   private worldHeight = WORLD_HEIGHT;
   private engineParticleCooldown = 0;
+  private destructionCountdown = 0;
+  private pendingRespawn = false;
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -298,6 +310,7 @@ export class Game {
     this.projectiles.length = 0;
     this.enemies.length = 0;
     this.particles.length = 0;
+    this.wireFragments.length = 0;
     this.credits = 150;
     this.score = 0;
     this.elapsed = 0;
@@ -307,6 +320,8 @@ export class Game {
     this.nextEnemyId = 1;
     this.scheduledFormations.length = 0;
     this.engineParticleCooldown = 0;
+    this.destructionCountdown = 0;
+    this.pendingRespawn = false;
     const openingTop = this.worldHeight / 2 - FORMATIONS.chevron.height / 2;
     this.scheduledFormations.push(
       { at: 0.5, id: "chevron", preferredTop: openingTop },
@@ -338,10 +353,13 @@ export class Game {
     this.projectiles.length = 0;
     this.enemies.length = 0;
     this.particles.length = 0;
+    this.wireFragments.length = 0;
     this.credits = 0;
     this.score = 0;
     this.elapsed = 0;
     this.wave = 1;
+    this.destructionCountdown = 0;
+    this.pendingRespawn = false;
     this.setState("menu");
   }
 
@@ -371,6 +389,7 @@ export class Game {
     const player = this.player;
     const definition = WEAPONS[id];
     if (
+      !this.canManageLoadout ||
       !player ||
       !player.ship.armory.includes(id) ||
       player.weapons.some((weapon) => weapon.id === id) ||
@@ -401,6 +420,9 @@ export class Game {
   }
 
   public upgradeWeapon(id: WeaponId): boolean {
+    if (!this.canManageLoadout) {
+      return false;
+    }
     const mount = this.player?.weapons.find((weapon) => weapon.id === id);
     if (!mount || mount.level >= MAX_WEAPON_LEVEL) {
       return false;
@@ -422,6 +444,9 @@ export class Game {
   }
 
   public repairWeapon(id: WeaponId): boolean {
+    if (!this.canManageLoadout) {
+      return false;
+    }
     const mount = this.player?.weapons.find((weapon) => weapon.id === id);
     if (!mount) {
       return false;
@@ -439,6 +464,9 @@ export class Game {
   }
 
   public reloadWeapon(id: WeaponId): boolean {
+    if (!this.canManageLoadout) {
+      return false;
+    }
     const mount = this.player?.weapons.find((weapon) => weapon.id === id);
     const definition = WEAPONS[id];
     if (!mount || mount.ammo === null || definition.ammoCapacity === null) {
@@ -458,7 +486,7 @@ export class Game {
   public repairShip(): boolean {
     const player = this.player;
     const cost = this.repairCost;
-    if (!player || cost <= 0 || this.credits < cost) {
+    if (!this.canManageLoadout || !player || cost <= 0 || this.credits < cost) {
       return false;
     }
     this.credits -= cost;
@@ -480,6 +508,8 @@ export class Game {
 
     if (this.state === "playing") {
       this.update(delta);
+    } else if (this.state === "destroyed") {
+      this.updateDestruction(delta);
     }
     this.render(timestamp / 1000);
 
@@ -519,7 +549,54 @@ export class Game {
     this.updateEnemies(player, delta);
     this.updateProjectiles(player, delta);
     this.updateParticles(delta);
+    this.updateWireFragments(delta);
     this.screenFlash = Math.max(0, this.screenFlash - delta * 2.4);
+  }
+
+  private updateDestruction(delta: number): void {
+    this.updateStars(delta * 0.7);
+    this.updateParticles(delta);
+    this.updateWireFragments(delta);
+    this.screenFlash = Math.max(0, this.screenFlash - delta * 1.8);
+    this.destructionCountdown -= delta;
+    if (this.destructionCountdown > 0) {
+      return;
+    }
+
+    const destroyedPlayer = this.player;
+    if (this.pendingRespawn && destroyedPlayer && this.credits >= RESPAWN_COST) {
+      this.credits -= RESPAWN_COST;
+      const shockOrigin = destroyedPlayer.position.clone();
+      this.player = this.createPlayer(destroyedPlayer.ship);
+      this.player.invulnerable = 2;
+      for (let index = this.enemies.length - 1; index >= 0; index -= 1) {
+        const enemy = this.enemies[index];
+        if (!enemy) {
+          continue;
+        }
+        enemy.health -= 80;
+        if (enemy.health <= 0) {
+          this.enemies.splice(index, 1);
+          this.explodeEnemy(
+            enemy,
+            Vector.between(shockOrigin, enemy.position).normalize().scale(420),
+          );
+        }
+      }
+      for (let index = this.projectiles.length - 1; index >= 0; index -= 1) {
+        if (!this.projectiles[index]?.friendly) {
+          this.projectiles.splice(index, 1);
+        }
+      }
+      this.createBurst(this.player.position, "#3de3ff", 22);
+      this.pendingRespawn = false;
+      this.setState("playing");
+      return;
+    }
+
+    this.pendingRespawn = false;
+    this.saveHighScore();
+    this.setState("gameover");
   }
 
   private updateStars(delta: number): void {
@@ -944,7 +1021,7 @@ export class Game {
             laserImpact?.reflects ? 8 : 4,
           );
           if (enemy.health <= 0) {
-            this.destroyEnemy(enemyIndex, enemy);
+            this.destroyEnemy(enemyIndex, enemy, projectile.velocity);
           }
           if (laserImpact?.reflects) {
             projectile.penetration = laserImpact.remainingPenetration;
@@ -1042,6 +1119,18 @@ export class Game {
       }
       if (!advanceEffectParticle(particle, delta)) {
         this.particles.splice(index, 1);
+      }
+    }
+  }
+
+  private updateWireFragments(delta: number): void {
+    for (let index = this.wireFragments.length - 1; index >= 0; index -= 1) {
+      const fragment = this.wireFragments[index];
+      if (!fragment) {
+        continue;
+      }
+      if (!advanceWireFragment(fragment, delta)) {
+        this.wireFragments.splice(index, 1);
       }
     }
   }
@@ -1242,7 +1331,11 @@ export class Game {
       enemy.health -= damage;
       enemy.hitFlash = 1;
       if (enemy.health <= 0) {
-        this.destroyEnemy(index, enemy);
+        this.destroyEnemy(
+          index,
+          enemy,
+          Vector.between(projectile.position, enemy.position).normalize().scale(420),
+        );
       }
     }
   }
@@ -1347,10 +1440,49 @@ export class Game {
     );
   }
 
-  private destroyEnemy(index: number, enemy: Enemy): void {
+  private destroyEnemy(index: number, enemy: Enemy, impulse?: Point): void {
     this.enemies.splice(index, 1);
     this.score += Math.round(enemy.maxHealth);
     this.credits += enemy.reward;
+    this.explodeEnemy(enemy, impulse);
+  }
+
+  private explodeEnemy(enemy: Enemy, impulse?: Point): void {
+    const definition = ENEMIES[enemy.kind];
+    const color = definition.color;
+    this.explodeWireframe(
+      enemy.position,
+      enemy.kind === "eagle" ? enemy.velocity.angle : Math.PI,
+      definition.shape,
+      definition.details,
+      color,
+      enemy.velocity,
+      impulse,
+      enemy.kind === "boss" ? 185 : 135,
+      enemy.kind === "boss" ? 1.65 : 1.18,
+      enemy.kind === "boss" ? 2.5 : 1.5,
+    );
+    if (enemy.kind === "boss") {
+      const ring = Array.from({ length: 18 }, (_, index) => {
+        const angle = (index / 18) * Math.PI * 2;
+        return {
+          x: Math.cos(angle) * enemy.radius * 0.55,
+          y: Math.sin(angle) * enemy.radius * 0.55,
+        };
+      });
+      this.explodeWireframe(
+        enemy.position,
+        Math.PI - enemy.age * 0.7,
+        ring,
+        [],
+        color,
+        enemy.velocity,
+        impulse,
+        210,
+        1.75,
+        2,
+      );
+    }
     this.createBurst(
       enemy.position,
       enemy.kind === "boss" ? "#ffc766" : "#ff5c75",
@@ -1368,31 +1500,48 @@ export class Game {
     this.screenFlash = 0.5;
     this.createBurst(player.position, "#3de3ff", 12);
     if (player.health <= 0) {
-      if (this.credits >= RESPAWN_COST) {
-        this.credits -= RESPAWN_COST;
-        this.player = this.createPlayer(player.ship);
-        this.player.invulnerable = 2;
-        for (let index = this.enemies.length - 1; index >= 0; index -= 1) {
-          const enemy = this.enemies[index];
-          if (!enemy) {
-            continue;
-          }
-          enemy.health -= 80;
-          if (enemy.health <= 0) {
-            this.enemies.splice(index, 1);
-            this.createBurst(enemy.position, "#ff5c75", 10);
-          }
-        }
-        for (let index = this.projectiles.length - 1; index >= 0; index -= 1) {
-          if (!this.projectiles[index]?.friendly) {
-            this.projectiles.splice(index, 1);
-          }
-        }
-      } else {
-        this.saveHighScore();
-        this.setState("gameover");
-      }
+      this.beginPlayerDestruction(player);
     }
+  }
+
+  private beginPlayerDestruction(player: Player): void {
+    const impulse = player.velocity.clone();
+    for (const mount of player.weapons) {
+      const definition = WEAPONS[mount.id];
+      const position = this.weaponPosition(mount);
+      const angle =
+        mount.id === "drone" ? this.droneTargetAngle(position, player.angle) : player.angle;
+      this.explodeWireframe(
+        position,
+        angle,
+        definition.shape,
+        definition.details,
+        definition.color,
+        player.velocity,
+        impulse,
+        165,
+        1.55,
+        1.7,
+      );
+      this.createBurst(position, definition.color, 7);
+    }
+    this.explodeWireframe(
+      player.position,
+      player.angle,
+      player.ship.shape,
+      player.ship.details,
+      "#3de3ff",
+      player.velocity,
+      impulse,
+      185,
+      1.75,
+      2,
+    );
+    this.createBurst(player.position, "#3de3ff", 38);
+    this.screenFlash = 1;
+    this.destructionCountdown = DESTRUCTION_DURATION;
+    this.pendingRespawn = this.credits >= RESPAWN_COST;
+    this.setState("destroyed");
   }
 
   private damageWeapon(mount: WeaponMount, damage: number): void {
@@ -1401,14 +1550,29 @@ export class Game {
       return;
     }
     const position = this.weaponPosition(mount);
+    const definition = WEAPONS[mount.id];
     mount.health = Math.max(0, mount.health - damage);
     mount.hitFlash = 1;
-    this.createBurst(position, WEAPONS[mount.id].color, 5);
+    this.createBurst(position, definition.color, 5);
     if (mount.health <= 0) {
+      const angle =
+        mount.id === "drone" ? this.droneTargetAngle(position, player.angle) : player.angle;
       const index = player.weapons.indexOf(mount);
       if (index >= 0) {
         player.weapons.splice(index, 1);
       }
+      this.explodeWireframe(
+        position,
+        angle,
+        definition.shape,
+        definition.details,
+        definition.color,
+        player.velocity,
+        undefined,
+        145,
+        1.25,
+        1.7,
+      );
       this.createBurst(position, "#f7fbff", 18);
     }
   }
@@ -1460,6 +1624,37 @@ export class Game {
       this.particles.splice(0, this.particles.length - MAX_PARTICLES + 1);
     }
     this.particles.push(particle);
+  }
+
+  private explodeWireframe(
+    origin: Point,
+    rotation: number,
+    shape: readonly Point[],
+    details: readonly WireframeSegment[],
+    color: string,
+    inheritedVelocity?: Point,
+    impulse?: Point,
+    outwardSpeed?: number,
+    lifetime?: number,
+    lineWidth?: number,
+  ): void {
+    const fragments = createWireExplosion({
+      origin,
+      rotation,
+      shape,
+      details,
+      color,
+      inheritedVelocity,
+      impulse,
+      outwardSpeed,
+      lifetime,
+      lineWidth,
+    });
+    const overflow = this.wireFragments.length + fragments.length - MAX_WIRE_FRAGMENTS;
+    if (overflow > 0) {
+      this.wireFragments.splice(0, overflow);
+    }
+    this.wireFragments.push(...fragments);
   }
 
   private createBurst(position: Point, color: string, count: number): void {
@@ -1601,9 +1796,10 @@ export class Game {
     for (const enemy of this.enemies) {
       this.renderEnemy(enemy);
     }
-    if (this.player) {
+    if (this.player && (this.state === "playing" || this.state === "paused")) {
       this.renderPlayer(this.player, time);
     }
+    this.renderWireFragments();
     this.renderParticles(["spark", "ring"]);
 
     if (this.screenFlash > 0) {
@@ -1712,7 +1908,10 @@ export class Game {
       context.globalAlpha = (0.16 + star.depth * 0.68) * twinkle;
       context.fillStyle = star.depth > 0.75 ? "#9aefff" : "#b9c9da";
       const y = star.y - playerParallaxY * star.depth * 0.025;
-      const streak = this.state === "playing" ? 0.5 + star.depth * 3.5 : star.size;
+      const streak =
+        this.state === "playing" || this.state === "destroyed"
+          ? 0.5 + star.depth * 3.5
+          : star.size;
       context.fillRect(star.x - streak, y, streak + star.size, star.size);
     }
     context.globalAlpha = 1;
@@ -1789,6 +1988,31 @@ export class Game {
         context.arc(0, 0, particle.size, 0, Math.PI * 2);
         context.fill();
       }
+      context.restore();
+    }
+    context.globalAlpha = 1;
+    context.shadowBlur = 0;
+  }
+
+  private renderWireFragments(): void {
+    const context = this.context;
+    for (const fragment of this.wireFragments) {
+      const opacity = wireFragmentOpacity(fragment);
+      if (opacity <= 0) {
+        continue;
+      }
+      context.save();
+      context.translate(fragment.position.x, fragment.position.y);
+      context.rotate(fragment.rotation);
+      context.globalAlpha = opacity;
+      context.strokeStyle = fragment.color;
+      context.shadowColor = fragment.color;
+      context.shadowBlur = 4 + opacity * 7;
+      context.lineWidth = fragment.lineWidth;
+      context.beginPath();
+      context.moveTo(fragment.start.x, fragment.start.y);
+      context.lineTo(fragment.end.x, fragment.end.y);
+      context.stroke();
       context.restore();
     }
     context.globalAlpha = 1;
@@ -2170,7 +2394,9 @@ export class Game {
           ? (definition.ammoCapacity - mount.ammo) * definition.reloadPrice
           : 0;
       let disabledReason: string | null = null;
-      if (mount?.level === MAX_WEAPON_LEVEL) {
+      if (!this.canManageLoadout) {
+        disabledReason = "Flight unavailable";
+      } else if (mount?.level === MAX_WEAPON_LEVEL) {
         disabledReason = "Max level";
       } else if (!mount && player.weapons.length >= MAX_WEAPONS) {
         disabledReason = "Slots full";
@@ -2185,20 +2411,20 @@ export class Game {
         health: mount?.health ?? null,
         maxHealth,
         repairCost,
-        canRepair: repairCost > 0 && this.credits >= repairCost,
+        canRepair: this.canManageLoadout && repairCost > 0 && this.credits >= repairCost,
         ammo: mount?.ammo ?? null,
         maxAmmo: mount ? definition.ammoCapacity : null,
         clipAmmo: mount?.clipAmmo ?? null,
         clipSize: mount?.id === "pulse" ? pulseClipSize(mount.level) : null,
         reloadCost,
-        canReload: reloadCost > 0 && this.credits >= reloadCost,
+        canReload: this.canManageLoadout && reloadCost > 0 && this.credits >= reloadCost,
       };
     });
   }
 
   private applyQuickAction(action: QuickAction, slot: number): void {
     const player = this.player;
-    if (!player) {
+    if (!this.canManageLoadout || !player) {
       return;
     }
     const resolved = resolveArmoryAction(
@@ -2226,6 +2452,10 @@ export class Game {
     this.input.setEnabled(state === "playing");
     this.render(performance.now() / 1000);
     this.emitState();
+  }
+
+  private get canManageLoadout(): boolean {
+    return this.state === "playing" || this.state === "paused";
   }
 
   private emitState(): void {
@@ -2275,6 +2505,7 @@ export class Game {
       for (const enemy of this.enemies) enemy.position.y *= ratio;
       for (const projectile of this.projectiles) projectile.position.y *= ratio;
       for (const particle of this.particles) particle.position.y *= ratio;
+      for (const fragment of this.wireFragments) fragment.position.y *= ratio;
       for (const star of this.stars) star.y *= ratio;
       for (const debris of this.backdropDebris) debris.y *= ratio;
       this.worldHeight = nextWorldHeight;

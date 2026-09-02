@@ -98,8 +98,8 @@ function updateState(state: GameState, snapshot: GameSnapshot): void {
   currentState = state;
   selectionOverlay.hidden = state !== "menu";
   statusOverlay.hidden = state !== "paused" && state !== "gameover";
-  hangar.hidden = state === "menu" || state === "gameover";
-  pauseButton.disabled = state === "menu" || state === "gameover";
+  hangar.hidden = state !== "playing" && state !== "paused";
+  pauseButton.disabled = state !== "playing" && state !== "paused";
   pauseButton.firstChild!.textContent = state === "paused" ? "Resume " : "Pause ";
 
   if (state === "menu") {
