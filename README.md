@@ -6,6 +6,8 @@ Weapons are physical mounts around the ship: they fire from their own muzzles, i
 
 Every mount reacts to its state with weapon-specific recoil, muzzle flashes, charging, cycling, or reload motion. Multi-barrel flashes follow the actual firing barrel, and sustained weapons expose their remaining burst energy on the model.
 
+Combat effects distinguish directional impact sparks, heavy-weapon smoke, engine exhaust, glows, and expanding destruction rings. Slow nebula haze, distant orbital arcs, rotating debris, and near/far star layers add parallax depth behind the combat grid without obscuring threats.
+
 Each frame has a role-focused armory. Modern additions include a penetrating Rail Spike, an impact-detonated Flak Charge, a target-acquiring Hunter Drone, and a sweeping Guard Blade. Orbit repeaters, drones, and blades move independently around their ship: their physical models intercept impacts and their shots originate from the moving mount.
 
 Play it at [bluehexagons.github.io/jsshooter](https://bluehexagons.github.io/jsshooter/).

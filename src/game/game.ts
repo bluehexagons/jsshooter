@@ -22,6 +22,13 @@ import {
   type EnemyKind,
   type FormationId,
 } from "./enemies";
+import {
+  advanceEffectParticle,
+  effectOpacity,
+  type EffectParticle,
+  type ParticleKind,
+  wrappedParallaxX,
+} from "./effects";
 import { InputController, type QuickAction } from "./input";
 import { resolveArmoryAction } from "./loadout";
 import { advanceMountMotion, animatedMountOffset, mountMotionBounds } from "./mount-motion";
@@ -163,19 +170,30 @@ interface Enemy {
   hitFlash: number;
 }
 
-interface Particle {
-  position: Vector;
-  velocity: Vector;
-  life: number;
-  maxLife: number;
-  color: string;
-}
-
 interface Star {
   x: number;
   y: number;
   depth: number;
   size: number;
+  twinkle: number;
+}
+
+interface Nebula {
+  x: number;
+  yRatio: number;
+  radius: number;
+  depth: number;
+  color: string;
+}
+
+interface BackdropDebris {
+  x: number;
+  y: number;
+  depth: number;
+  size: number;
+  rotation: number;
+  spin: number;
+  sides: number;
 }
 
 interface ScheduledFormation {
@@ -196,14 +214,17 @@ const REPAIR_RATE = 1.5;
 const BASE_FIRE_COOLDOWN = 0.5;
 const HIGH_SCORE_KEY = "corvus-high-score";
 const RESPAWN_COST = 2500;
+const MAX_PARTICLES = 520;
 
 export class Game {
   private readonly context: CanvasRenderingContext2D;
   private readonly input: InputController;
   private readonly stars: Star[];
+  private readonly nebulas: readonly Nebula[];
+  private readonly backdropDebris: BackdropDebris[];
   private readonly projectiles: Projectile[] = [];
   private readonly enemies: Enemy[] = [];
-  private readonly particles: Particle[] = [];
+  private readonly particles: EffectParticle[] = [];
   private readonly scheduledFormations: ScheduledFormation[] = [];
   private player: Player | null = null;
   private state: GameState = "menu";
@@ -218,6 +239,7 @@ export class Game {
   private uiCooldown = 0;
   private screenFlash = 0;
   private worldHeight = WORLD_HEIGHT;
+  private engineParticleCooldown = 0;
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -234,11 +256,26 @@ export class Game {
       (action, slot) => this.applyQuickAction(action, slot),
       () => this.emitSnapshot(),
     );
-    this.stars = Array.from({ length: 150 }, () => ({
+    this.stars = Array.from({ length: 190 }, () => ({
       x: Math.random() * WORLD_WIDTH,
       y: Math.random() * this.worldHeight,
-      depth: Math.random() * 0.8 + 0.2,
+      depth: Math.random() * 0.9 + 0.1,
       size: Math.random() * 1.4 + 0.4,
+      twinkle: Math.random() * Math.PI * 2,
+    }));
+    this.nebulas = [
+      { x: 160, yRatio: 0.2, radius: 260, depth: 0.12, color: "45, 96, 154" },
+      { x: 690, yRatio: 0.82, radius: 320, depth: 0.18, color: "86, 46, 128" },
+      { x: 1110, yRatio: 0.38, radius: 220, depth: 0.25, color: "26, 112, 124" },
+    ];
+    this.backdropDebris = Array.from({ length: 11 }, () => ({
+      x: Math.random() * WORLD_WIDTH,
+      y: Math.random() * this.worldHeight,
+      depth: Math.random() * 0.55 + 0.15,
+      size: 10 + Math.random() * 28,
+      rotation: Math.random() * Math.PI * 2,
+      spin: (Math.random() - 0.5) * 0.18,
+      sides: 5 + Math.floor(Math.random() * 4),
     }));
 
     new ResizeObserver(this.resizeCanvas).observe(canvas);
@@ -269,6 +306,7 @@ export class Game {
     this.lastBossWave = 0;
     this.nextEnemyId = 1;
     this.scheduledFormations.length = 0;
+    this.engineParticleCooldown = 0;
     const openingTop = this.worldHeight / 2 - FORMATIONS.chevron.height / 2;
     this.scheduledFormations.push(
       { at: 0.5, id: "chevron", preferredTop: openingTop },
@@ -492,6 +530,14 @@ export class Game {
         star.y = Math.random() * this.worldHeight;
       }
     }
+    for (const debris of this.backdropDebris) {
+      debris.x -= (7 + debris.depth * 28) * delta;
+      debris.rotation += debris.spin * delta;
+      if (debris.x < -debris.size * 2) {
+        debris.x = WORLD_WIDTH + debris.size * 2;
+        debris.y = Math.random() * this.worldHeight;
+      }
+    }
   }
 
   private updatePlayer(player: Player, delta: number): void {
@@ -509,6 +555,7 @@ export class Game {
     player.angle = Vector.between(player.position, this.input.aim).angle;
     player.invulnerable = Math.max(0, player.invulnerable - delta);
     player.baseCooldown = advanceCooldown(player.baseCooldown, delta);
+    this.updateEngineTrail(player, delta);
 
     for (const weapon of player.weapons) {
       const definition = WEAPONS[weapon.id];
@@ -546,6 +593,39 @@ export class Game {
       if (weapon.cooldown <= 0 && hasAmmunition) {
         this.fireWeapon(weapon, player.angle);
       }
+    }
+  }
+
+  private updateEngineTrail(player: Player, delta: number): void {
+    this.engineParticleCooldown -= delta;
+    const thrust = clamp(player.velocity.length / player.ship.speed, 0, 1);
+    const interval = 0.075 - thrust * 0.035;
+    while (this.engineParticleCooldown <= 0) {
+      this.engineParticleCooldown += interval;
+      const tail = Math.min(...player.ship.shape.map((point) => point.x));
+      const position = this.playerOffsetPosition(player, {
+        x: tail - 4,
+        y: (Math.random() - 0.5) * 5,
+      });
+      const exhaustSpeed = 55 + thrust * 125 + Math.random() * 35;
+      const velocity = Vector.fromAngle(
+        player.angle + Math.PI + (Math.random() - 0.5) * 0.22,
+        exhaustSpeed,
+      ).add(player.velocity.clone().scale(0.12));
+      const life = 0.2 + Math.random() * 0.22;
+      this.addParticle({
+        position,
+        velocity,
+        life,
+        maxLife: life,
+        color: Math.random() < 0.35 ? "#d8fbff" : "#70f0b1",
+        kind: Math.random() < 0.72 ? "spark" : "glow",
+        size: 1 + thrust * 1.2,
+        growth: -0.8,
+        drag: 0.3,
+        rotation: player.angle + Math.PI,
+        spin: 0,
+      });
     }
   }
 
@@ -857,7 +937,12 @@ export class Game {
             previousPosition.x + (nextPosition.x - previousPosition.x) * impact.fraction;
           projectile.position.y =
             previousPosition.y + (nextPosition.y - previousPosition.y) * impact.fraction;
-          this.createBurst(projectile.position, projectile.color, 2);
+          this.createImpact(
+            projectile.position,
+            projectile.color,
+            impact.normal,
+            laserImpact?.reflects ? 8 : 4,
+          );
           if (enemy.health <= 0) {
             this.destroyEnemy(enemyIndex, enemy);
           }
@@ -914,11 +999,30 @@ export class Game {
           projectile.radius + this.playerCollisionRadius(player),
         );
         const hitHull = hullFraction !== null && hullFraction < closestFraction;
+        const impactFraction = hitHull ? hullFraction : closestFraction;
+        if (impactFraction !== null && Number.isFinite(impactFraction)) {
+          projectile.position.x =
+            previousPosition.x + (nextPosition.x - previousPosition.x) * impactFraction;
+          projectile.position.y =
+            previousPosition.y + (nextPosition.y - previousPosition.y) * impactFraction;
+        }
 
         if (hitHull) {
+          this.createImpact(
+            projectile.position,
+            projectile.color,
+            Vector.fromAngle(projectile.velocity.angle + Math.PI),
+            6,
+          );
           this.damagePlayer(projectile.damage);
           removeProjectile = true;
         } else if (blockingMount) {
+          this.createImpact(
+            projectile.position,
+            projectile.color,
+            Vector.fromAngle(projectile.velocity.angle + Math.PI),
+            5,
+          );
           this.damageWeapon(blockingMount, projectile.damage);
           removeProjectile = true;
         }
@@ -936,10 +1040,7 @@ export class Game {
       if (!particle) {
         continue;
       }
-      particle.life -= delta;
-      particle.position.add(particle.velocity.clone().scale(delta));
-      particle.velocity.scale(Math.pow(0.2, delta));
-      if (particle.life <= 0) {
+      if (!advanceEffectParticle(particle, delta)) {
         this.particles.splice(index, 1);
       }
     }
@@ -984,6 +1085,13 @@ export class Game {
         Math.cos(angle - mountFacingAngle),
       );
       mount.feedback = triggerWeaponFeedback(mount.feedback, muzzleAngle);
+      this.createMuzzleEffect(
+        origin,
+        definition.color,
+        angle,
+        definition.recoilDistance,
+        mount.id,
+      );
     };
 
     switch (mount.id) {
@@ -1347,17 +1455,119 @@ export class Game {
     );
   }
 
+  private addParticle(particle: EffectParticle): void {
+    if (this.particles.length >= MAX_PARTICLES) {
+      this.particles.splice(0, this.particles.length - MAX_PARTICLES + 1);
+    }
+    this.particles.push(particle);
+  }
+
   private createBurst(position: Point, color: string, count: number): void {
     for (let index = 0; index < count; index += 1) {
-      const life = 0.25 + Math.random() * 0.6;
-      this.particles.push({
+      const smoke = index % 5 === 0;
+      const life = smoke ? 0.55 + Math.random() * 0.5 : 0.25 + Math.random() * 0.6;
+      this.addParticle({
         position: new Vector(position.x, position.y),
-        velocity: Vector.fromAngle(Math.random() * Math.PI * 2, 35 + Math.random() * 180),
+        velocity: Vector.fromAngle(
+          Math.random() * Math.PI * 2,
+          smoke ? 18 + Math.random() * 55 : 45 + Math.random() * 210,
+        ),
         life,
         maxLife: life,
         color,
+        kind: smoke ? "smoke" : "spark",
+        size: smoke ? 3 + Math.random() * 4 : 1 + Math.random() * 2.2,
+        growth: smoke ? 9 + Math.random() * 12 : -0.6,
+        drag: smoke ? 0.35 : 0.16,
+        rotation: Math.random() * Math.PI * 2,
+        spin: (Math.random() - 0.5) * 9,
       });
     }
+    if (count >= 10) {
+      const ringLife = 0.38 + Math.min(0.3, count / 160);
+      this.addParticle({
+        position: new Vector(position.x, position.y),
+        velocity: new Vector(),
+        life: ringLife,
+        maxLife: ringLife,
+        color,
+        kind: "ring",
+        size: 4,
+        growth: 72 + count * 1.7,
+        drag: 1,
+        rotation: 0,
+        spin: 0,
+      });
+      this.addParticle({
+        position: new Vector(position.x, position.y),
+        velocity: new Vector(),
+        life: 0.18,
+        maxLife: 0.18,
+        color,
+        kind: "glow",
+        size: 8 + Math.min(28, count * 0.6),
+        growth: 34,
+        drag: 1,
+        rotation: 0,
+        spin: 0,
+      });
+    }
+  }
+
+  private createImpact(
+    position: Point,
+    color: string,
+    direction: Point,
+    count: number,
+  ): void {
+    const baseAngle = Math.atan2(direction.y, direction.x);
+    for (let index = 0; index < count; index += 1) {
+      const life = 0.16 + Math.random() * 0.24;
+      const angle = baseAngle + (Math.random() - 0.5) * 1.25;
+      this.addParticle({
+        position: new Vector(position.x, position.y),
+        velocity: Vector.fromAngle(angle, 110 + Math.random() * 210),
+        life,
+        maxLife: life,
+        color: index === 0 ? "#ffffff" : color,
+        kind: "spark",
+        size: 1 + Math.random() * 1.5,
+        growth: -0.8,
+        drag: 0.12,
+        rotation: angle,
+        spin: 0,
+      });
+    }
+  }
+
+  private createMuzzleEffect(
+    position: Point,
+    color: string,
+    angle: number,
+    recoilDistance: number,
+    weaponId: WeaponId,
+  ): void {
+    if (weaponId === "laser" || Math.random() > 0.82) {
+      return;
+    }
+    const heavy = recoilDistance >= 7;
+    const life = heavy ? 0.3 + Math.random() * 0.2 : 0.12 + Math.random() * 0.12;
+    this.addParticle({
+      position: new Vector(position.x, position.y),
+      velocity: Vector.fromAngle(
+        angle + Math.PI + (Math.random() - 0.5) * 0.65,
+        18 + recoilDistance * 5 + Math.random() * 35,
+      ),
+      life,
+      maxLife: life,
+      color,
+      kind: heavy ? "smoke" : "glow",
+      size: heavy ? 2.5 + recoilDistance * 0.18 : 2,
+      growth: heavy ? 8 : 2,
+      drag: 0.28,
+      rotation: angle + Math.PI,
+      spin: (Math.random() - 0.5) * 2,
+    });
   }
 
   private render(time: number): void {
@@ -1366,13 +1576,7 @@ export class Game {
     context.setTransform(scale, 0, 0, scale, 0, 0);
     context.clearRect(0, 0, WORLD_WIDTH, this.worldHeight);
     this.renderBackground(time);
-
-    for (const particle of this.particles) {
-      context.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1);
-      context.fillStyle = particle.color;
-      context.fillRect(particle.position.x - 1.5, particle.position.y - 1.5, 3, 3);
-    }
-    context.globalAlpha = 1;
+    this.renderParticles(["smoke", "glow"]);
 
     for (const projectile of this.projectiles) {
       context.shadowColor = projectile.color;
@@ -1400,6 +1604,7 @@ export class Game {
     if (this.player) {
       this.renderPlayer(this.player, time);
     }
+    this.renderParticles(["spark", "ring"]);
 
     if (this.screenFlash > 0) {
       context.fillStyle = `rgba(255, 55, 88, ${this.screenFlash * 0.17})`;
@@ -1409,6 +1614,10 @@ export class Game {
 
   private renderBackground(time: number): void {
     const context = this.context;
+    const backgroundTime = this.player ? this.elapsed : time;
+    const playerParallaxY = this.player
+      ? this.player.position.y - this.worldHeight / 2
+      : 0;
     const gradient = context.createLinearGradient(0, 0, WORLD_WIDTH, this.worldHeight);
     gradient.addColorStop(0, "#050d1b");
     gradient.addColorStop(0.55, "#030914");
@@ -1416,9 +1625,62 @@ export class Game {
     context.fillStyle = gradient;
     context.fillRect(0, 0, WORLD_WIDTH, this.worldHeight);
 
+    for (const nebula of this.nebulas) {
+      const centerX = wrappedParallaxX(
+        nebula.x,
+        backgroundTime,
+        2 + nebula.depth * 9,
+        WORLD_WIDTH,
+        nebula.radius,
+      );
+      const centerY =
+        nebula.yRatio * this.worldHeight - playerParallaxY * nebula.depth * 0.08;
+      const span = WORLD_WIDTH + nebula.radius * 2;
+      for (const copyX of [centerX - span, centerX, centerX + span]) {
+        if (copyX + nebula.radius < 0 || copyX - nebula.radius > WORLD_WIDTH) {
+          continue;
+        }
+        const haze = context.createRadialGradient(
+          copyX,
+          centerY,
+          0,
+          copyX,
+          centerY,
+          nebula.radius,
+        );
+        haze.addColorStop(0, `rgba(${nebula.color}, ${0.08 + nebula.depth * 0.08})`);
+        haze.addColorStop(0.45, `rgba(${nebula.color}, 0.035)`);
+        haze.addColorStop(1, `rgba(${nebula.color}, 0)`);
+        context.fillStyle = haze;
+        context.fillRect(
+          copyX - nebula.radius,
+          centerY - nebula.radius,
+          nebula.radius * 2,
+          nebula.radius * 2,
+        );
+      }
+    }
+
+    this.renderStarLayer(backgroundTime, playerParallaxY, 0, 0.55);
+    this.renderBackdropDebris(playerParallaxY);
+
+    const moonX = wrappedParallaxX(980, backgroundTime, 3.2, WORLD_WIDTH, 190);
+    context.save();
+    context.strokeStyle = "rgba(133, 117, 188, 0.075)";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.arc(moonX, this.worldHeight * 0.2, 145, Math.PI * 0.72, Math.PI * 1.64);
+    context.stroke();
+    context.strokeStyle = "rgba(73, 128, 158, 0.045)";
+    context.lineWidth = 8;
+    context.beginPath();
+    context.arc(moonX + 8, this.worldHeight * 0.2, 128, Math.PI * 0.72, Math.PI * 1.64);
+    context.stroke();
+    context.restore();
+
     context.strokeStyle = "rgba(61, 227, 255, 0.055)";
     context.lineWidth = 1;
-    const drift = this.state === "playing" ? this.elapsed * 38 : time * 8;
+    const drift = this.player ? this.elapsed * 38 : time * 8;
     const gridOffset = drift % 80;
     context.beginPath();
     for (let x = -gridOffset; x < WORLD_WIDTH; x += 80) {
@@ -1431,12 +1693,106 @@ export class Game {
     }
     context.stroke();
 
+    this.renderStarLayer(backgroundTime, playerParallaxY, 0.55, 1.01);
+    context.globalAlpha = 1;
+  }
+
+  private renderStarLayer(
+    time: number,
+    playerParallaxY: number,
+    minimumDepth: number,
+    maximumDepth: number,
+  ): void {
+    const context = this.context;
     for (const star of this.stars) {
-      context.globalAlpha = 0.25 + star.depth * 0.7;
+      if (star.depth < minimumDepth || star.depth >= maximumDepth) {
+        continue;
+      }
+      const twinkle = 0.78 + Math.sin(time * (0.7 + star.depth) + star.twinkle) * 0.22;
+      context.globalAlpha = (0.16 + star.depth * 0.68) * twinkle;
       context.fillStyle = star.depth > 0.75 ? "#9aefff" : "#b9c9da";
-      context.fillRect(star.x, star.y, star.size, star.size);
+      const y = star.y - playerParallaxY * star.depth * 0.025;
+      const streak = this.state === "playing" ? 0.5 + star.depth * 3.5 : star.size;
+      context.fillRect(star.x - streak, y, streak + star.size, star.size);
     }
     context.globalAlpha = 1;
+  }
+
+  private renderBackdropDebris(playerParallaxY: number): void {
+    const context = this.context;
+    for (const debris of this.backdropDebris) {
+      context.save();
+      context.translate(
+        debris.x,
+        debris.y - playerParallaxY * debris.depth * 0.045,
+      );
+      context.rotate(debris.rotation);
+      context.globalAlpha = 0.025 + debris.depth * 0.065;
+      context.strokeStyle = "#8191b8";
+      context.lineWidth = 1;
+      context.beginPath();
+      for (let point = 0; point < debris.sides; point += 1) {
+        const angle = (point / debris.sides) * Math.PI * 2;
+        const radius = debris.size * (0.72 + Math.sin(point * 2.37 + debris.sides) * 0.18);
+        const x = Math.cos(angle) * radius;
+        const y = Math.sin(angle) * radius;
+        if (point === 0) {
+          context.moveTo(x, y);
+        } else {
+          context.lineTo(x, y);
+        }
+      }
+      context.closePath();
+      context.stroke();
+      context.beginPath();
+      context.moveTo(-debris.size * 0.35, 0);
+      context.lineTo(debris.size * 0.45, 0);
+      context.stroke();
+      context.restore();
+    }
+  }
+
+  private renderParticles(kinds: readonly ParticleKind[]): void {
+    const context = this.context;
+    for (const particle of this.particles) {
+      if (!kinds.includes(particle.kind)) {
+        continue;
+      }
+      const opacity = effectOpacity(particle);
+      if (opacity <= 0) {
+        continue;
+      }
+      context.save();
+      context.translate(particle.position.x, particle.position.y);
+      context.rotate(particle.rotation);
+      context.globalAlpha = opacity;
+      context.fillStyle = particle.color;
+      context.strokeStyle = particle.color;
+      if (particle.kind === "spark") {
+        const streak = Math.min(18, 3 + particle.velocity.length * 0.035);
+        context.shadowColor = particle.color;
+        context.shadowBlur = 5;
+        context.lineWidth = Math.max(1, particle.size);
+        context.beginPath();
+        context.moveTo(-streak, 0);
+        context.lineTo(particle.size, 0);
+        context.stroke();
+      } else if (particle.kind === "ring") {
+        context.lineWidth = Math.max(1, 3 * opacity);
+        context.beginPath();
+        context.arc(0, 0, particle.size, 0, Math.PI * 2);
+        context.stroke();
+      } else {
+        context.shadowColor = particle.color;
+        context.shadowBlur = particle.kind === "glow" ? particle.size * 1.2 : 0;
+        context.beginPath();
+        context.arc(0, 0, particle.size, 0, Math.PI * 2);
+        context.fill();
+      }
+      context.restore();
+    }
+    context.globalAlpha = 1;
+    context.shadowBlur = 0;
   }
 
   private renderPlayer(player: Player, time: number): void {
@@ -1920,6 +2276,7 @@ export class Game {
       for (const projectile of this.projectiles) projectile.position.y *= ratio;
       for (const particle of this.particles) particle.position.y *= ratio;
       for (const star of this.stars) star.y *= ratio;
+      for (const debris of this.backdropDebris) debris.y *= ratio;
       this.worldHeight = nextWorldHeight;
       this.input.setWorldHeight(nextWorldHeight);
     }
