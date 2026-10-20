@@ -26,7 +26,7 @@ Play it at [bluehexagons.github.io/jsshooter](https://bluehexagons.github.io/jss
 The game is written in strict TypeScript and built with Vite.
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 
@@ -34,8 +34,27 @@ Other useful commands:
 
 ```sh
 npm test
+npm run check
 npm run build
 npm run preview
 ```
 
-The production build uses relative asset paths so it works from the repository's GitHub Pages project path. Pushes to `main` are tested, built, and published by the Pages workflow.
+Use Node 24 (`.nvmrc`, also used by CI). Basaltwater on Debian is the reference
+development environment; ordinary Node.js development remains supported.
+Select the runtime with `nvm use`, or run `basaltw node exec -- npm run check`
+on Basaltwater. `npm run check` checks TypeScript and runs the existing tests;
+`npm run build` creates the production bundle.
+
+For an authorized HTTPS preview on a phone or another device, follow the shared
+`basaltwater-web-gateway` skill and run:
+
+```sh
+basaltwater-web preview start corvus --project .
+```
+
+The gateway keeps Vite on loopback. The native development and preview commands
+work without Basaltwater; provide trusted HTTPS separately when needed.
+
+The production build uses relative asset paths so it works from the repository's
+GitHub Pages project path or another subdirectory. Pull requests and pushes to
+`main` are tested and built; only main publishes the Pages site.
