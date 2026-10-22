@@ -39,7 +39,7 @@ npm run build
 npm run preview
 ```
 
-Use Node 24 (`.nvmrc`, also used by CI). Basaltwater on Debian is the reference
+Use Node.js 24.22.1+ within 24.x (LTS) or 26.12.1+ within 26.x (Current). `.nvmrc` selects Node 24.22.1 for development and CI. Basaltwater on Debian is the reference
 development environment; ordinary Node.js development remains supported.
 Select the runtime with `nvm use`, or run `basaltw node exec -- npm run check`
 on Basaltwater. `npm run check` checks TypeScript and runs the existing tests;
